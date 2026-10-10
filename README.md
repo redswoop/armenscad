@@ -17,7 +17,7 @@ OpenSCAD models are code, which an agent writes well, but neither of you can see
 - macOS or Linux. Windows is untested (the tools are bash and Python; WSL should work).
 - **OpenSCAD, a development snapshot.** The 2021.01 stable release has no Manifold backend and will not work. macOS: `brew install --cask openscad@snapshot`. Linux: a nightly AppImage or package from [openscad.org/downloads](https://openscad.org/downloads.html#snapshots). It must be on `PATH` as `openscad`, or set `OPENSCAD=/path/to/openscad`.
 - [Bun](https://bun.sh) for the viewer.
-- Python 3 for the tools (standard library only).
+- Python 3 and [uv](https://docs.astral.sh/uv/) for the tools. `stlinfo.py`, `voxcmp.py` and `shapr_dump.py` are `uv run --script` files that fetch their own dependencies (numpy, msgpack); the collision check and the export scripts call `stlinfo.py`.
 - Claude Code, if you want the agent side.
 
 ## Quick start
