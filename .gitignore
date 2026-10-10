@@ -1,0 +1,20 @@
+# Base (tooling) repo. Model folders are their own git repos and are ignored
+# here by default: everything is ignored except the tooling paths listed.
+/*
+!/.gitignore
+!/CLAUDE.md
+!/README.md
+!/LICENSE
+!/docs/
+!/examples/
+!/.claude/
+!/viewer/
+!/lib/
+!/tools/
+!/template/
+
+# inside the tooling
+viewer/node_modules/
+viewer/.cache/
+viewer/.dev.log
+.DS_Store

@@ -1,0 +1,7 @@
+{
+  "file": "MODEL_NAME.scad",
+  "defines": { "show_ghost": false, "show_all": false },
+  "parts": [
+    { "name": "body", "call": "body();", "color": "#4682b4" }
+  ]
+}

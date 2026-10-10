@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Set or read top-level parameters in a .scad file without disturbing comments.
+
+usage: scadset FILE.scad name=value [name=value ...]     write values
+       scadset FILE.scad name [name ...]                 print current values
+Only the first assignment of each name is touched, and only above the first `module`.
+"""
+import re, sys
+
+def main():
+    if len(sys.argv) < 3:
+        print(__doc__); sys.exit(1)
+    path, items = sys.argv[1], sys.argv[2:]
+    src = open(path).read()
+    head_end = re.search(r"^\s*module\s+\w+", src, re.M)
+    head_end = head_end.start() if head_end else len(src)
+    changed = False
+    for item in items:
+        name, _, value = item.partition("=")
+        pat = re.compile(r"^([ \t]*" + re.escape(name) + r"[ \t]*=[ \t]*)([^;]+)(;)", re.M)
+        m = pat.search(src, 0, head_end)
+        if not m:
+            print(f"{name}: not found in the top-level block of {path}"); sys.exit(2)
+        if not value:
+            print(f"{name} = {m.group(2).strip()}"); continue
+        src = src[:m.start(2)] + value + src[m.end(2):]
+        head_end += len(value) - len(m.group(2))
+        print(f"{name}: {m.group(2).strip()} -> {value}")
+        changed = True
+    if changed:
+        open(path, "w").write(src)
+
+if __name__ == "__main__":
+    main()

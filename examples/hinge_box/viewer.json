@@ -1,0 +1,9 @@
+{
+  "file": "hinge_box.scad",
+  "defines": { "show_ghost": false, "show_all": false },
+  "parts": [
+    { "name": "box", "call": "box();", "color": "#4682b4", "group": "printed" },
+    { "name": "lid", "call": "lid_at(lid_deg);", "color": "#daa520", "group": "printed" },
+    { "name": "pin", "call": "pin();", "color": "#dc143c", "group": "hardware" }
+  ]
+}

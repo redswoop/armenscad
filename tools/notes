@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""notes: read and act on a model's viewer annotations (<model>/annotations.json) through the viewer API.
+
+  tools/notes <model>                        open annotations, one line each
+  tools/notes <model> list [--all|--done]
+  tools/notes <model> show <id>              the full JSON of one annotation
+  tools/notes <model> done <id> ["reply"]    mark done, with what was changed
+  tools/notes <model> reopen <id>
+  tools/notes <model> rm <id>
+  tools/notes <model> view <id>|iso|top|front|side|under
+                                             move every open browser tab to that annotation's camera (or a preset)
+  tools/notes <model> cam                    what the browser is showing now (last reported pose + hidden parts)
+  tools/notes <model> add "text" [--part P] [--xyz X,Y,Z]
+                                             leave a text note (by: claude) at the browser's current camera
+  tools/notes <model> points <id> [--scad NAME] [--2d]
+                                             dump a points note; --scad prints an OpenSCAD list assignment
+  tools/notes <model> overlays               reference-image overlays and their placement
+  tools/notes <model> rm-overlay <id>        remove one (the image file in ref/ stays)
+  tools/notes <model> refs                   reference images with captions
+  tools/notes <model> import FILE.json       replace the whole document (rev is fetched first)
+
+<model> is "name" or "toy/name" (e.g. whale/hatch). Reads fall back to the file on disk when the viewer
+server is down; writes need it (cd viewer && bun run dev). SCAD_API overrides http://127.0.0.1:3003.
+"""
+import json, os, sys, urllib.request, urllib.error
+from datetime import datetime, timezone
+
+API = os.environ.get('SCAD_API', 'http://127.0.0.1:3003')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PRESETS = ('iso', 'top', 'front', 'side', 'under')
+
+
+def call(method, route, body=None):
+    req = urllib.request.Request(f'{API}/api/{MODEL}/{route}', method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={'content-type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        try: msg = json.load(e).get('error', e.reason)
+        except Exception: msg = e.reason
+        sys.exit(f'notes: {method} {route}: {e.code} {msg}')
+    except urllib.error.URLError:
+        return None
+
+
+def doc():
+    d = call('GET', 'annotations')
+    if d is None:
+        p = os.path.join(ROOT, MODEL, 'annotations.json')
+        print('notes: viewer not running; reading the file', file=sys.stderr)
+        try:
+            with open(p) as f: return json.load(f)
+        except FileNotFoundError:
+            return {'version': 1, 'rev': 0, 'annotations': [], 'overlays': []}
+    return d
+
+
+def need_server(r):
+    if r is None: sys.exit('notes: the viewer server is not running (cd viewer && bun run dev)')
+    return r
+
+
+def where(a):
+    if a.get('kind') == 'points':
+        return f"{len(a.get('xyz', []))} pts {a.get('plane') or 'xyz'}"
+    h = next((h for h in a.get('hits', []) if h.get('part')), None)
+    return f"{h['part']}@({', '.join(f'{v:g}' for v in h['xyz'])})" if h else 'no part'
+
+
+def cmd_list(args):
+    d = doc(); want = 'open'
+    if '--all' in args: want = None
+    if '--done' in args: want = 'done'
+    rows = [a for a in d['annotations'] if want is None or a.get('status', 'open') == want]
+    if not rows:
+        print(f'no {want or ""} annotations (rev {d["rev"]})'.replace('  ', ' ')); return
+    for a in rows:
+        flag = '✓' if a.get('status') == 'done' else '·'
+        by = 'C' if a.get('by') == 'claude' else ' '
+        print(f"{a['id']:<4} {flag}{by} {a.get('kind', '?'):<6} {a.get('created', '')[:16]:<16} {where(a):<28} {a.get('caption', '')}"
+              + (f"\n      ↳ {a['reply']}" if a.get('reply') else ''))
+
+
+def find(d, id):
+    a = next((a for a in d['annotations'] if a['id'] == id), None)
+    if not a: sys.exit(f'notes: no annotation {id}')
+    return a
+
+
+def cmd_show(args):
+    print(json.dumps(find(doc(), args[0]), indent=2))
+
+
+def cmd_done(args):
+    body = {'status': 'done', 'done': datetime.now(timezone.utc).isoformat(timespec='seconds')}
+    if len(args) > 1: body['reply'] = args[1]
+    r = need_server(call('PATCH', f'annotations/{args[0]}', body)); print(f"{args[0]} done (rev {r['rev']})")
+
+
+def cmd_reopen(args):
+    r = need_server(call('PATCH', f'annotations/{args[0]}', {'status': 'open'})); print(f"{args[0]} open (rev {r['rev']})")
+
+
+def cmd_rm(args):
+    r = need_server(call('DELETE', f'annotations/{args[0]}')); print(f"{args[0]} removed (rev {r['rev']})")
+
+
+def cmd_view(args):
+    body = {'preset': args[0]} if args[0] in PRESETS else {'annotation': args[0]}
+    r = need_server(call('POST', 'view', body))
+    print(f"view seq {r['seq']} sent to {r.get('clients', '?')} tab(s); wait for '[viewer] view seq={r['seq']} applied' in the console, then screenshot")
+
+
+def cmd_cam(args):
+    r = need_server(call('GET', 'view'))
+    print(json.dumps(r, indent=2))
+
+
+def cmd_add(args):
+    text = args[0]; part = xyz = None
+    for i, a in enumerate(args):
+        if a == '--part': part = args[i + 1]
+        if a == '--xyz': xyz = [float(v) for v in args[i + 1].split(',')]
+    v = need_server(call('GET', 'view'))
+    cam = (v.get('camera') or {}).get('camera') or (v.get('last') or {}).get('camera')
+    body = {'kind': 'text', 'by': 'claude', 'caption': text, 'pts': [[0.5, 0.5]], 'camera': cam,
+            'hits': [{'i': 0, 'part': part, 'xyz': xyz}] if (part or xyz) else []}
+    r = need_server(call('POST', 'annotations', body)); print(f"added {r['id']} (rev {r['rev']})")
+
+
+AXES = {'XY': (0, 1), 'XZ': (0, 2), 'YZ': (1, 2)}
+
+
+def cmd_points(args):
+    a = find(doc(), args[0])
+    if a.get('kind') != 'points': sys.exit(f'notes: {args[0]} is a {a.get("kind")} note, not points')
+    pts = a['xyz']
+    if '--2d' in args and a.get('plane') in AXES:
+        i, j = AXES[a['plane']]; pts = [[p[i], p[j]] for p in pts]
+    if '--scad' in args:
+        name = args[args.index('--scad') + 1]
+        print(f"{name} = [{', '.join('[' + ', '.join(f'{v:g}' for v in p) + ']' for p in pts)}];"
+              f"  // {a.get('plane') or 'xyz'} mm, traced from {a.get('overlay') or 'the parts'} (note {a['id']}): {a.get('caption', '')}")
+    else:
+        print(f"{a['id']} {a.get('plane') or 'xyz'} {len(pts)} points{' from overlay ' + a['overlay'] if a.get('overlay') else ''}: {a.get('caption', '')}")
+        for n, p in enumerate(pts, 1): print(f"{n:3}  " + '  '.join(f'{v:9.2f}' for v in p))
+
+
+def cmd_overlays(args):
+    d = doc()
+    if not d['overlays']: print('no overlays'); return
+    for o in d['overlays']:
+        print(f"{o['id']:<4} {o['image']:<28} {o['plane']} offset {o.get('offset', 0):g}  {o.get('mmPerPx')} mm/px  origin px {o.get('originPx')}"
+              f"  rot {o.get('rot', 0):g}  flip {'x' if o.get('flipX') else ''}{'y' if o.get('flipY') else ''}  "
+              f"{'calibrated ' + str(o['calib']['mm']) + ' mm' if o.get('calib') else 'NOT calibrated'}")
+
+
+def cmd_rm_overlay(args):
+    r = need_server(call('DELETE', f'annotations/overlays/{args[0]}')); print(f"overlay {args[0]} removed (rev {r['rev']})")
+
+
+def cmd_refs(args):
+    r = call('GET', 'refs')
+    if r is None:
+        p = os.path.join(ROOT, MODEL, 'ref'); names = sorted(os.listdir(p)) if os.path.isdir(p) else []
+        r = [{'name': n, 'caption': None, 'scale': None} for n in names if not n.startswith('.') and n != 'index.json']
+    if not r: print('no reference images (put photos in ' + os.path.join(MODEL, 'ref') + ')'); return
+    for x in r:
+        print(f"{x['name']:<28} {x.get('caption') or ''}" + (f"  [scale: {x['scale']['mm']} mm between {x['scale']['px']}]" if x.get('scale') else ''))
+
+
+def cmd_import(args):
+    with open(args[0]) as f: new = json.load(f)
+    cur = need_server(call('GET', 'annotations'))
+    new['version'] = 1; new['rev'] = cur['rev']
+    r = need_server(call('PUT', 'annotations', new)); print(f"imported (rev {r['rev']})")
+
+
+CMDS = {'list': cmd_list, 'show': cmd_show, 'done': cmd_done, 'reopen': cmd_reopen, 'rm': cmd_rm, 'view': cmd_view,
+        'cam': cmd_cam, 'add': cmd_add, 'points': cmd_points, 'overlays': cmd_overlays, 'rm-overlay': cmd_rm_overlay,
+        'refs': cmd_refs, 'import': cmd_import}
+
+if __name__ == '__main__':
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ('-h', '--help'): print(__doc__.strip()); sys.exit(0)
+    MODEL = argv[0].strip('/')
+    if not os.path.isfile(os.path.join(ROOT, MODEL, 'viewer.json')): sys.exit(f'notes: no model {MODEL} (needs {MODEL}/viewer.json under scad/)')
+    cmd, rest = (argv[1], argv[2:]) if len(argv) > 1 else ('list', [])
+    if cmd not in CMDS: sys.exit(f'notes: unknown command {cmd}; see --help')
+    try: CMDS[cmd](rest)
+    except IndexError: sys.exit(f'notes: {cmd} needs more arguments; see --help')

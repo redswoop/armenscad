@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>scad viewer</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="pick" hidden>
+    <h1>scad viewer</h1>
+    <p class="muted">Pick a model. Each one has its own URL, so open as many tabs as you have sessions.</p>
+    <p id="pick-msg" class="err"></p>
+    <ul id="pick-list"></ul>
+  </div>
+  <div id="app">
+    <aside id="side">
+      <header>
+        <div class="row-h"><h1 id="title">scad viewer</h1><select id="switch" title="switch model"></select></div>
+        <div id="status" class="muted">connecting…</div>
+        <div id="override-banner" hidden></div>
+      </header>
+      <section>
+        <h2>Parts <span class="muted" id="tri-total"></span></h2>
+        <ul id="parts"></ul>
+        <label class="row"><input type="checkbox" id="ghost" /> reference ghost
+          <input type="range" id="ghost-op" min="0" max="1" step="0.05" value="0.35" /></label>
+      </section>
+      <section>
+        <h2>Size <span class="muted" id="size-target"></span> <label class="inl" title="wire box with the edge lengths (b)"><input type="checkbox" id="size-box" /> box (b)</label></h2>
+        <div id="size-rows"></div>
+      </section>
+      <section>
+        <h2>View</h2>
+        <div class="btns">
+          <button data-view="iso">Iso</button><button data-view="top">Top</button>
+          <button data-view="front">Front</button><button data-view="side">Side</button>
+          <button data-view="under">Under</button><button id="fit">Fit</button>
+          <button id="ortho" title="orthographic camera (o)">Ortho</button>
+        </div>
+      </section>
+      <section>
+        <h2>Shading</h2>
+        <div class="sec-row">
+          <label class="chk" title="the key light casts shadows"><input type="checkbox" id="sh-shadows" /> shadows</label>
+          <label class="chk" title="dark lines on part edges (creases over 30°)"><input type="checkbox" id="sh-edges" /> edges</label>
+          <label class="chk" title="the fill light follows the camera"><input type="checkbox" id="sh-headlight" /> headlight</label>
+        </div>
+      </section>
+      <section>
+        <h2>Section <label class="inl"><input type="checkbox" id="sec-on" /> on (s)</label></h2>
+        <div class="sec-row">
+          <select id="sec-axis" title="cut normal to this axis"><option>X</option><option>Y</option><option>Z</option></select>
+          <input type="range" id="sec-pos" min="0" max="100" step="0.5" title="cut position, mm" />
+          <input type="number" id="sec-mm" step="0.5" title="cut position, mm" />
+          <label class="chk" title="keep the other side"><input type="checkbox" id="sec-flip" /> flip</label>
+        </div>
+        <div class="sec-row" id="sec-rot-row" title="tilt the plane: degrees about each of the other two axes (or right-drag a cut face)">
+          <span class="muted">tilt</span>
+          <label class="chk">↻<span id="sec-rot-a-ax">X</span><input type="number" id="sec-rot-a" step="1" value="0" />°</label>
+          <label class="chk">↻<span id="sec-rot-b-ax">Y</span><input type="number" id="sec-rot-b" step="1" value="0" />°</label>
+          <button id="sec-rot-reset" title="back to axis-aligned">⟲</button>
+        </div>
+        <div id="sec-hint" class="muted"></div>
+      </section>
+      <section>
+        <h2>Annotations <span class="muted" id="a-count"></span> <label class="inl"><input type="checkbox" id="a-showdone" /> show done</label></h2>
+        <ul id="annots"></ul>
+      </section>
+      <section>
+        <h2>Reference <span class="muted" id="ref-count"></span> <button id="refs-reload" class="small" title="re-read ref/">↻</button></h2>
+        <div id="gallery"></div>
+        <div id="ov-panel" hidden>
+          <div class="ov-head"><select id="ov-name" title="which overlay the panel edits"></select><button id="ov-remove" class="small" title="remove this overlay">×</button></div>
+          <div class="ov-grid">
+            <label>plane <select id="ov-plane"><option>XY</option><option>XZ</option><option>YZ</option></select></label>
+            <label>offset <input id="ov-offset" type="number" step="0.5" value="0" title="position along the plane's normal, mm"></label>
+            <label>mm/px <input id="ov-mmpx" type="number" step="0.001" value="0.1"></label>
+            <label>rot° <input id="ov-rot" type="number" step="0.5" value="0"></label>
+            <label>opacity <input id="ov-opacity" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+            <label class="chk"><input id="ov-visible" type="checkbox" checked> show</label>
+            <label class="chk"><input id="ov-flipx" type="checkbox"> flip ↔</label>
+            <label class="chk"><input id="ov-flipy" type="checkbox"> flip ↕</label>
+            <label class="chk"><input id="ov-ontop" type="checkbox"> on top</label>
+          </div>
+          <div class="btns">
+            <button id="ov-face" class="small" title="orthographic, straight at the plane">Face</button>
+            <button id="ov-calib" class="small" title="click two points on the image, type the distance">Calibrate</button>
+            <button id="ov-origin" class="small" title="click the image point that sits at (0, 0)">Set origin</button>
+            <button id="ov-fit" class="small" title="frame the image">Frame</button>
+          </div>
+          <div id="ov-info" class="muted"></div>
+        </div>
+      </section>
+      <section>
+        <h2>Parameters <span class="muted" id="p-count"></span> <button id="apply" class="small">Apply</button> <button id="reset" class="small">Reset</button></h2>
+        <div class="p-tools"><input id="p-filter" placeholder="filter names, comments, sections" /><label id="p-sel-wrap" hidden><input type="checkbox" id="p-sel" checked /> selection only</label></div>
+        <div id="params"></div>
+      </section>
+      <section>
+        <h2>Log</h2>
+        <pre id="log" class="muted"></pre>
+      </section>
+    </aside>
+    <main id="stage">
+      <canvas id="c"></canvas>
+      <svg id="ink" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="tools">
+        <button data-tool="select" class="on" title="select / orbit (v)">↖</button>
+        <button data-tool="pen" title="pen (p)">✎</button>
+        <button data-tool="arrow" title="arrow (a)">➚</button>
+        <button data-tool="text" title="label (t)">T</button>
+        <button data-tool="points" title="pick points (k)">⦿</button>
+        <span id="tool-hint" class="muted"></span>
+      </div>
+      <input id="text-entry" hidden autocomplete="off" />
+      <div id="tip" hidden></div>
+      <div id="lightbox" hidden>
+        <div class="lb-head"><span id="lb-title"></span><span class="lb-btns"><button id="lb-place" class="small">place as overlay</button><button id="lb-close" class="small">×</button></span></div>
+        <img id="lb-img" alt="" />
+        <div id="lb-cap" class="muted"></div>
+      </div>
+      <div id="code" hidden>
+        <div class="code-head"><span id="code-title"></span><button id="code-close" class="small">×</button></div>
+        <pre id="code-body"></pre>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
