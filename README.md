@@ -57,7 +57,7 @@ Draw on the render (pen `p`, arrow `a`, label `t`, points `k`), type a caption, 
 | Path | What |
 |---|---|
 | `viewer/` | Bun API server (`server.js`, port 3003) and Vite + three.js front end (port 5180). One server for every model. |
-| `tools/` | `check.sh`, `stlinfo.py`, `scadset`, `notes`, `voxcmp.py`, `slice.sh`, `svgpts.py`, `stlshift.py`, `3mfinfo.py`, `3mf2stl.py`, `shapr_dump.py`, `ldraw2stl.py` (LDraw part to a reference STL), `new-model.sh`. Usage is in each file's header comment. |
+| `tools/` | `check.sh`, `stlinfo.py`, `scadset`, `notes`, `voxcmp.py`, `slice.sh`, `svgpts.py`, `stlshift.py`, `3mfinfo.py`, `3mf2stl.py`, `shapr_dump.py`, `ldraw2stl.py` (LDraw part to a reference STL), `stlshells.py` (union a mesh-soup download's closed shells, report the open ones), `new-model.sh`. Usage is in each file's header comment. |
 | `lib/` | Shared modules, see `lib/README.md`. |
 | `template/` | New-model skeleton. |
 | `examples/` | Demo models tracked in this repo. |
