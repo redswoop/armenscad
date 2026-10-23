@@ -7,7 +7,7 @@ A workbench for designing 3D-printable parts in [OpenSCAD](https://openscad.org)
 OpenSCAD models are code, which an agent writes well, but neither of you can see what the other means. This repo is the shared surface:
 
 - **`viewer/`**: a browser viewer that rebuilds every part on save. Per-part colours and groups, a parameter panel read from the `.scad` file, section cuts with hatched caps (overlapping parts show in red), bounding-box sizes, reference photos, and notes you draw on the render that the agent can read back with the parts and millimetre coordinates under each stroke.
-- **`tools/`**: command-line checks the agent runs instead of eyeballing: collision tables across poses, STL facts (volume, watertightness, shell count), parameter write-back, volume comparison against a reference mesh, STL cross-sections, 3MF and Shapr3D readers.
+- **`tools/`**: command-line checks the agent runs instead of eyeballing: collision tables across poses, STL facts (volume, watertightness, shell count), parameter write-back, volume comparison against a reference mesh, STL cross-sections, 3MF, Shapr3D and LDraw readers.
 - **`lib/`**: shared OpenSCAD modules (printable fillets, sweeps, teardrop holes, settled clearances).
 - **`template/`**: the skeleton of a model folder: model, viewer manifest, print layout, collision pairs, tolerance coupon, export scripts, README.
 - **`.claude/skills/openscad/`**: the playbook that tells Claude how to use all of the above.
@@ -57,7 +57,7 @@ Draw on the render (pen `p`, arrow `a`, label `t`, points `k`), type a caption, 
 | Path | What |
 |---|---|
 | `viewer/` | Bun API server (`server.js`, port 3003) and Vite + three.js front end (port 5180). One server for every model. |
-| `tools/` | `check.sh`, `stlinfo.py`, `scadset`, `notes`, `voxcmp.py`, `slice.sh`, `svgpts.py`, `stlshift.py`, `3mfinfo.py`, `3mf2stl.py`, `shapr_dump.py`, `new-model.sh`. Usage is in each file's header comment. |
+| `tools/` | `check.sh`, `stlinfo.py`, `scadset`, `notes`, `voxcmp.py`, `slice.sh`, `svgpts.py`, `stlshift.py`, `3mfinfo.py`, `3mf2stl.py`, `shapr_dump.py`, `ldraw2stl.py` (LDraw part to a reference STL), `new-model.sh`. Usage is in each file's header comment. |
 | `lib/` | Shared modules, see `lib/README.md`. |
 | `template/` | New-model skeleton. |
 | `examples/` | Demo models tracked in this repo. |
