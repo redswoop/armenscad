@@ -35,7 +35,7 @@ hinge_gap   = 0.4;     // knuckle to the back wall
 pin_d       = 1.75;    // filament
 
 // ---------- fits (settle these with the coupon) ----------
-use <../../lib/fit.scad>     // teardrop_2d, fit_fil_clr
+use <armenscad/fit.scad>     // teardrop_2d, fit_fil_clr
 pin_clr = fit_fil_clr();     // per side, pin in its hole. 0.15 on a Bambu H2C; coupon.scad prints 0.10 / 0.15 / 0.20
 
 // ---------- derived (not for editing) ----------

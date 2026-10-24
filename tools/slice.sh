@@ -9,6 +9,7 @@ case "$axis" in
   x) rot="[0,-90,0]"; off="[-($z),0,0]" ;;      # cut plane x = z, view along X
   y) rot="[90,0,0]"; off="[0,-($z),0]" ;;       # cut plane y = z, view along Y
 esac
+export OPENSCADPATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib${OPENSCADPATH:+:$OPENSCADPATH}"   # use <armenscad/...>
 "${OPENSCAD:-$(command -v openscad || echo /opt/homebrew/bin/openscad)}" --backend Manifold -o "$out" \
   -D "f=\"$stl\"" -D "rot=$rot" -D "off=$off" \
   "$(dirname "$0")/slice.scad" 2>&1 | grep -iE "error|warn" || true

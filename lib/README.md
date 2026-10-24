@@ -1,6 +1,6 @@
-# lib/ shared OpenSCAD modules
+# lib/armenscad/ shared OpenSCAD modules
 
-Pull in with `use <../lib/shape.scad>` from a model folder. `use` (not `include`) so the
+Pull in with `use <armenscad/shape.scad>` from any model folder, wherever it lives. OpenSCAD finds it through OPENSCADPATH (the viewer and `tools/check.sh`, `slice.sh` add `lib/` to it) or through the symlink `tools/install-lib.sh` makes once in the user library folder (`~/Documents/OpenSCAD/libraries/armenscad` on macOS), which also covers the GUI and a model's own `export.sh`/`render.sh`. `use` (not `include`) so the
 library sees no model globals: every module takes what it needs as parameters. `$fn`
 still flows in from the caller.
 

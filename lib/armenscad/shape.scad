@@ -1,5 +1,5 @@
 // shape.scad: geometry helpers with no project globals. Pull in with
-//   use <../lib/shape.scad>
+//   use <armenscad/shape.scad>
 // Special variables ($fn etc.) come from the caller, so set $fn in your model.
 
 // A block standing on a surface, with the free face's edges rounded by r.

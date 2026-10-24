@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# armenscad: the OpenSCAD workbench from any folder.
+#   armenscad browse [DIR]              viewer on a workspace (every folder with a viewer.json under DIR, default .)
+#   armenscad init <name> ["desc"]      new model folder here from the template (<toy>/<name> inside a toy repo)
+#   armenscad check <check.scad> [poses...]   collision table (tools/check.sh)
+#   armenscad notes <model-folder> [...]      viewer annotations (tools/notes)
+#   armenscad install                   put this script on PATH (~/.local/bin) and the lib in OpenSCAD's library folder
+#   armenscad root                      print the workbench folder
+#   armenscad <tool> [args]             any script in tools/: stlinfo, scadset, voxcmp, slice, svgpts, stlshift,
+#                                       stlshells, 3mfinfo, 3mf2stl, shapr_dump, ldraw2stl
+set -e
+self="${BASH_SOURCE[0]}"; while [ -L "$self" ]; do self="$(readlink "$self")"; done
+root="$(cd "$(dirname "$self")/.." && pwd)"
+export OPENSCADPATH="$root/lib${OPENSCADPATH:+:$OPENSCADPATH}"
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  browse)  exec "$root/tools/browse" "$@" ;;
+  init)    exec "$root/tools/new-model.sh" "$@" ;;
+  check)   exec "$root/tools/check.sh" "$@" ;;
+  notes)   exec "$root/tools/notes" "$@" ;;
+  root)    echo "$root" ;;
+  install)
+    "$root/tools/install-lib.sh"
+    mkdir -p "$HOME/.local/bin"; ln -sfn "$root/bin/armenscad" "$HOME/.local/bin/armenscad"
+    echo "linked ~/.local/bin/armenscad -> $root/bin/armenscad"
+    case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "add ~/.local/bin to PATH (e.g. in ~/.shellrc): export PATH=\"\$HOME/.local/bin:\$PATH\"" ;; esac
+    [ -d "$root/viewer/node_modules" ] || (cd "$root/viewer" && bun install) ;;
+  help|-h|--help) sed -n '2,12p' "$self" | sed 's/^# \{0,1\}//' ;;
+  *)
+    for t in "$root/tools/$cmd" "$root/tools/$cmd.py" "$root/tools/$cmd.sh"; do [ -x "$t" ] && exec "$t" "$@"; done
+    echo "armenscad: no command or tool named '$cmd'"; "$0" help; exit 2 ;;
+esac

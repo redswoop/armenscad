@@ -8,6 +8,7 @@ set -u
 f="${1:?check.scad path}"; shift
 dir="$(cd "$(dirname "$f")" && pwd)"; f="$dir/$(basename "$f")"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export OPENSCADPATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib${OPENSCADPATH:+:$OPENSCADPATH}"   # use <armenscad/...>
 O="${OPENSCAD:-$(command -v openscad || echo /opt/homebrew/bin/openscad)}"
 tol="${CHECK_TOL:-0.01}"
 pairs=$(grep -m1 -E '^//\s*pair:' "$f" | grep -oE '"[^"]+"' | tr -d '"')

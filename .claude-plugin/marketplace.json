@@ -1,0 +1,20 @@
+{
+  "name": "armenscad",
+  "description": "The armenscad OpenSCAD workbench: viewer, collision checks, coupons, shared library, model template, and the skill that drives them.",
+  "owner": {
+    "name": "Armen Nakashian",
+    "url": "https://github.com/redswoop"
+  },
+  "plugins": [
+    {
+      "name": "armenscad",
+      "source": ".",
+      "description": "OpenSCAD workbench: viewer, collision checks, coupons, shared lib, template, and the skill that drives them.",
+      "category": "development",
+      "tags": [
+        "openscad",
+        "3d-printing"
+      ]
+    }
+  ]
+}

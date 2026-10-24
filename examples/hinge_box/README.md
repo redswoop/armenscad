@@ -6,7 +6,7 @@ State as of 2026-10-10: modelled, collision-checked, not printed. The demo model
 | File | What |
 |---|---|
 | `hinge_box.scad` | The model. Parameters at the top, one section per feature. |
-| `viewer.json` | Part list for the browser viewer (`../../viewer`, `bun run dev`, http://127.0.0.1:5180/examples/hinge_box/). |
+| `viewer.json` | Part list for the browser viewer (`tools/browse` from the repo root, http://127.0.0.1:5180/examples/hinge_box/). |
 | `print_layout.scad` | `-D part="..."`: each part in its printing pose. |
 | `check.scad` | Collision pairs; `../../tools/check.sh check.scad 'pose=..'`. Empty = clear. |
 | `coupon.scad` | Tolerance test print. |
@@ -24,7 +24,7 @@ Z up, the box sits on z = 0. +Y is the back (hinge side), X runs along the hinge
 
 ## Design notes
 - `lid_deg` is the pose: 0 closed, 180 folded flat behind the box. Change it in the viewer's parameter panel.
-- Pin holes are teardrops (`teardrop_2d` from `lib/fit.scad`), each pointing up in its own part's print pose.
+- Pin holes are teardrops (`teardrop_2d` from `armenscad/fit.scad`), each pointing up in its own part's print pose.
 - The lid's lip locates it inside the walls with `lip_clr` per side.
 - Collision table (`../../tools/check.sh check.scad 'lid_deg=0' 'lid_deg=45' 'lid_deg=90' 'lid_deg=135' 'lid_deg=180'`): all clear; box and lid touch along the rim when closed.
 

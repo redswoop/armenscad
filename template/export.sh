@@ -12,4 +12,4 @@ done
 printf '%-12s' coupon
 "$O" --backend Manifold --export-format binstl -o stl/coupon.stl coupon.scad 2>&1 | grep -iE "error|warning" | grep -v NoError || true
 echo "ok"
-../tools/stlinfo.py stl/*.stl
+command -v armenscad >/dev/null && armenscad stlinfo stl/*.stl || true   # size, volume, watertight, shells

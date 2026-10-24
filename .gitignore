@@ -7,7 +7,9 @@
 !/LICENSE
 !/docs/
 !/examples/
-!/.claude/
+!/.claude-plugin/
+!/skills/
+!/bin/
 !/viewer/
 !/lib/
 !/tools/

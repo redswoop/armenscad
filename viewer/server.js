@@ -1,6 +1,8 @@
-// scad-viewer API: serves every model folder under scad/ that has a viewer.json.
-// A model is either <scad>/<name>/viewer.json or, for a toy with several
-// assemblies, <scad>/<toy>/<name>/viewer.json (model name "toy/name").
+// scad-viewer API: serves every model folder under a workspace root that has a viewer.json.
+// The root is SCAD_ROOT (tools/browse sets it from the folder you point it at), default the
+// workbench folder above viewer/. Models are found up to MAX_DEPTH folders down, so a workspace
+// may hold <name>/viewer.json, <toy>/<name>/viewer.json or <group>/<toy>/<name>/viewer.json;
+// the model name is the relative path ("toy/name").
 // Each model gets its own state, file watcher, render cache and SSE clients,
 // created lazily on first request. Routes are /api/models and /api/<model>/....
 import { watch } from 'node:fs';
@@ -10,9 +12,13 @@ import path from 'node:path';
 const PORT = parseInt(process.env.PORT ?? '3003', 10);
 const HOST = process.env.HOST ?? '127.0.0.1';   // the API is unauthenticated: HOST=0.0.0.0 to reach it from the LAN
 const OPENSCAD = process.env.OPENSCAD ?? Bun.which('openscad') ?? '/opt/homebrew/bin/openscad';
-const ROOT = path.resolve(import.meta.dir, '..');
+const ROOT = path.resolve(process.env.SCAD_ROOT ?? path.join(import.meta.dir, '..'));
+const MAX_DEPTH = 3;
 const CACHE = path.join(import.meta.dir, '.cache');
-const SKIP = new Set(['template', 'viewer', 'lib', 'tools']);
+// use <armenscad/...> resolves against the workbench's lib/ wherever the workspace is
+const LIB = path.join(import.meta.dir, '..', 'lib');
+const OPENSCAD_ENV = { ...process.env, OPENSCADPATH: process.env.OPENSCADPATH ? `${LIB}:${process.env.OPENSCADPATH}` : LIB };
+const SKIP = new Set(['template', 'viewer', 'lib', 'tools', 'node_modules', 'stl', 'renders', 'ref']);
 
 const fmt = (v) => (typeof v === 'string' ? v : JSON.stringify(v));
 const exists = (p) => access(p).then(() => true, () => false);
@@ -20,7 +26,7 @@ const exists = (p) => access(p).then(() => true, () => false);
 // ---- models ----------------------------------------------------------
 const models = new Map();   // name -> Model
 
-const MODEL_RE = /^[\w.-]+(\/[\w.-]+)?$/;   // "name" or "toy/name"
+const MODEL_RE = /^[\w.-]+(\/[\w.-]+){0,2}$/;   // "name", "toy/name", up to MAX_DEPTH segments
 const REF_NAME = /^[\w][\w .()-]*\.(jpe?g|png|webp|gif)$/i;   // what counts as a reference image in <model>/ref/
 const PRESETS = ['iso', 'top', 'front', 'side', 'under'];
 
@@ -53,15 +59,13 @@ async function subdirs(dir) {
   return out;
 }
 
-async function listModelNames() {
-  const out = [];
-  for (const top of await subdirs(ROOT)) {
-    if (await exists(path.join(ROOT, top, 'viewer.json'))) out.push(top);
-    for (const sub of await subdirs(path.join(ROOT, top))) {   // a model may also hold sub-models (matx_case/modcase)
-      if (await exists(path.join(ROOT, top, sub, 'viewer.json'))) out.push(`${top}/${sub}`);
-    }
+async function listModelNames(rel = '', depth = 1, out = []) {
+  for (const d of await subdirs(path.join(ROOT, rel))) {
+    const name = rel ? `${rel}/${d}` : d;
+    if (await exists(path.join(ROOT, name, 'viewer.json'))) out.push(name);
+    if (depth < MAX_DEPTH) await listModelNames(name, depth + 1, out);   // a model may also hold sub-models (matx_case/modcase)
   }
-  return out.sort();
+  return rel ? out : out.sort();
 }
 
 async function getModel(name) {
@@ -242,7 +246,7 @@ class Model {
         const out = path.join(this.cache, `${p.name}.stl`);
         await writeFile(hp, harness);
         const t = performance.now();
-        const proc = Bun.spawn([OPENSCAD, '--backend', 'Manifold', '--export-format', 'binstl', '-o', out, hp], { stderr: 'pipe', stdout: 'pipe' });
+        const proc = Bun.spawn([OPENSCAD, '--backend', 'Manifold', '--export-format', 'binstl', '-o', out, hp], { stderr: 'pipe', stdout: 'pipe', env: OPENSCAD_ENV });
         const [err, outp] = await Promise.all([new Response(proc.stderr).text(), new Response(proc.stdout).text()]);
         const code = await proc.exited;
         const log = (err + outp).split('\n').filter((l) => /error|warning|deprecated/i.test(l) && !/NoError/.test(l)).join('\n');
@@ -343,6 +347,7 @@ Bun.serve({
     const url = new URL(req.url);
     const p = url.pathname;
     if (p === '/api/models') return json(await modelList());
+    if (p === '/api/root') return json({ root: ROOT, port: PORT });
 
     // /api/<model>/<route>, where <model> is one or two path segments
     const mm = p.match(/^\/api\/([^/]+)(?:\/([^/]+))?\/(.*)$/);
@@ -468,7 +473,7 @@ Bun.serve({
 });
 
 const names = await listModelNames();
-console.log(`scad-viewer api on ${HOST}:${PORT}, models: ${names.join(', ') || '(none)'}`);
+console.log(`scad-viewer api on ${HOST}:${PORT}, root ${ROOT}, models: ${names.join(', ') || '(none)'}`);
 // Say so up front if OpenSCAD is missing or too old: otherwise every part just shows as failed.
 try {
   const p = Bun.spawn([OPENSCAD, '--version'], { stderr: 'pipe', stdout: 'pipe' });

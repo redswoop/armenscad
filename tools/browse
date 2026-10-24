@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Open the scad viewer on a workspace: every folder with a viewer.json under DIR (default: here), up to 3 levels down.
+#   usage: tools/browse [DIR] [--no-open]
+# Ports: UI 5180 / API 3003 by default; the next free pair is used when those are busy, so two
+# workspaces can be open at once. PORT / UI_PORT override. Ctrl-C stops both servers.
+set -e
+dir="${1:-.}"; [ "${dir#--}" != "$dir" ] && dir="."
+root="$(cd "$dir" && pwd)"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+ui="${UI_PORT:-5180}"; api="${PORT:-3003}"
+while busy "$ui" || busy "$api"; do ui=$((ui + 1)); api=$((api + 1)); done
+if [ ! -d "$here/viewer/node_modules" ]; then (cd "$here/viewer" && bun install); fi
+url="http://127.0.0.1:$ui/"
+echo "scad viewer: $url  (workspace $root)"
+case " $* " in *" --no-open "*) ;; *) ( sleep 1.5; open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || true ) & ;; esac
+cd "$here/viewer" && SCAD_ROOT="$root" UI_PORT="$ui" PORT="$api" exec bun run dev

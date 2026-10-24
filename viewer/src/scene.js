@@ -54,7 +54,14 @@ export function resize() {
 new ResizeObserver(resize).observe(stage);
 resize();
 export const frameHooks = new Set();       // callbacks run before every frame (section.js keeps its caps in step with the parts)
-(function loop() { controls.update(); for (const f of frameHooks) f(); renderer.render(scene, view.camera); requestAnimationFrame(loop); })();
+// Clip planes follow the orbit distance, so a room-sized model (metres, not a 200 mm part) is not cut off at 5 m.
+function clip() {
+  const far = Math.max(5000, 20 * view.camera.position.distanceTo(controls.target));
+  if (far === persp.far) return;
+  persp.far = far; persp.near = far / 50000; persp.updateProjectionMatrix();
+  ortho.far = far; ortho.near = -far; ortho.updateProjectionMatrix();
+}
+(function loop() { controls.update(); clip(); for (const f of frameHooks) f(); renderer.render(scene, view.camera); requestAnimationFrame(loop); })();
 
 const tanHalfFov = () => Math.tan(THREE.MathUtils.degToRad(persp.fov / 2));
 

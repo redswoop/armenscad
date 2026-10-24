@@ -21,8 +21,8 @@ clr = 0.2;             // general clearance per side
 $fn = 96;
 eps = 0.01;
 
-use <../lib/shape.scad>   // rounded_pad, annulus_2d, wall_blend, arc_sweep, arc_pts, stroke_2d, grooves_2d
-use <../lib/fit.scad>     // teardrop_2d, keyhole_2d
+use <armenscad/shape.scad>   // rounded_pad, annulus_2d, wall_blend, arc_sweep, arc_pts, stroke_2d, grooves_2d
+use <armenscad/fit.scad>     // teardrop_2d, keyhole_2d
 
 // =====================================================================
 //  parts

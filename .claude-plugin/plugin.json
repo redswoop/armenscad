@@ -1,0 +1,11 @@
+{
+  "name": "armenscad",
+  "displayName": "armenscad",
+  "description": "OpenSCAD workbench for designing 3D-printed parts with Claude: browser viewer with section cuts and drawn notes, collision checks, coupon prints, shared library, model template.",
+  "version": "0.2.0",
+  "author": { "name": "Armen Nakashian", "url": "https://github.com/redswoop" },
+  "homepage": "https://github.com/redswoop/armenscad",
+  "repository": "https://github.com/redswoop/armenscad",
+  "license": "GPL-3.0-or-later",
+  "keywords": ["openscad", "3d-printing", "cad", "viewer"]
+}

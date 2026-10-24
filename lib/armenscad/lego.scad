@@ -1,5 +1,5 @@
 // lego.scad: the LEGO / Technic interface vocabulary, nominal moulded sizes.
-//   use <../lib/lego.scad>
+//   use <armenscad/lego.scad>
 // Everything a printed part needs to mate with real bricks: stud pitch, pin and axle holes, the
 // Technic axle cross, the Bionicle ball. Nominal numbers; a printed part adds its own clearance
 // (settled with a coupon) on top of these, never inside them.

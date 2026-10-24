@@ -1,7 +1,7 @@
 // fit.scad: features for printed fits (holes that print without support, snaps), and the
 // clearances we KNOW for one printer: a Bambu H2C, 0.4 nozzle, Bambu PLA Matte, 0.2 layers.
 // Treat them as starting points and re-settle each with a coupon on your own printer.
-//   use <../lib/fit.scad>
+//   use <armenscad/fit.scad>
 // `use` imports functions and modules only, so the known numbers are functions:
 //   pin_clr = fit_pin_clr();
 

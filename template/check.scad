@@ -1,6 +1,6 @@
 // Collision checks. Each `pair` should be EMPTY.
 //   pair: "body-body"
-// Run: ../tools/check.sh check.scad 'pose=0' 'pose=30'
+// Run: armenscad check check.scad 'pose=0' 'pose=30'
 include <MODEL_NAME.scad>
 show_ghost = false; show_all = false;
 pair = "body-body";
