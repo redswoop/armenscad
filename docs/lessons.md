@@ -42,3 +42,13 @@ A frame built from "u along this edge, v in, w up" is left-handed half the time.
 - **Section and shading state is in localStorage, shared with the user's tab.** Switch a section back off after testing.
 - **Part names in `viewer.json` must not contain spaces** (the STL route 500s).
 - **The camera far plane follows orbit distance**, so metre-scale models (a room in inches) show.
+
+## Pegs that fall off a mesh-soup print (2026-10-24, Hero Factory visors)
+Two ways a download's peg prints with no bond, both invisible in the slicer preview:
+1. The peg is its own closed shell floating 0.02-0.4 mm off the body (stlinfo: shells > 1; the pegfix script
+   measures the gap). `armenscad stlpegfix` stretches each such shell 0.8 mm into the body along its axis.
+2. The peg sits in a zero-clearance hole in the body: coincident contours, edges shared by 4 faces, winding
+   consistent, is_volume False. A layer through it shows the peg as a separate loop inside a round notch, so the
+   slicer draws peg and body as separate perimeters. Manifold and Blender's exact boolean both pass the mesh
+   through unchanged. `armenscad stlremesh` (Blender voxel remesh, then stlshells --min-vol) fuses it; verify by
+   sectioning through the peg (trimesh `section`, plot the loops) and seeing one outline, not a circle in a notch.

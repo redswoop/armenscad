@@ -1,0 +1,21 @@
+#!/bin/sh
+# usage: armenscad stlremesh in.stl out.stl [voxel_mm=0.1]
+# Rebuild a mesh-soup STL (coincident faces, pegs sitting in zero-clearance holes, self-intersections) as one
+# watertight solid: Blender voxel remesh, then union the closed shells and drop the debris (stlshells).
+# Costs ~0.1 mm of rounding on sharp edges and +1 % volume at 0.1 mm; output is big (~800k tris for a 30 mm part).
+set -e
+in=$(cd "$(dirname "$1")" && pwd)/$(basename "$1"); out=$2; vox=${3:-0.1}
+BL=${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+cat > "$tmp/vox.py" <<'PY'
+import bpy, sys
+inp, out, vox = sys.argv[sys.argv.index('--')+1:][:3]
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.wm.stl_import(filepath=inp)
+ob = bpy.context.selected_objects[0]; bpy.context.view_layer.objects.active = ob
+ob.data.remesh_voxel_size = float(vox); ob.data.remesh_voxel_adaptivity = 0.0; ob.data.use_remesh_fix_poles = True
+bpy.ops.object.voxel_remesh()
+bpy.ops.wm.stl_export(filepath=out, export_selected_objects=True)
+PY
+"$BL" -b --python "$tmp/vox.py" -- "$in" "$tmp/vox.stl" "$vox" 2>&1 | grep -i 'error' || true
+exec "$(dirname "$0")/stlshells.py" "$tmp/vox.stl" "$out" --min-vol 0.5
