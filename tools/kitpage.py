@@ -9,7 +9,7 @@ kit.json: {"name", "description", "assembly": [steps], "parts": [{"file", "name"
            "origin", "print", "colour", "hex", "part_no", "status"}]}
 status: ok (the real part) | substitute (nearest file, note why in origin) | missing (no file yet, file may be "").
 Also writes print/: one STL per physical piece, <base>_<colour>_<n>.stl, colour from "copies" (a list of colour
-words, one per piece) or else "colour" simplified (Bright Blue -> blue, Lime -> green, Flat Silver -> silver).
+words, one per piece) or else "colour" simplified (Bright Blue -> blue, Lime -> lime, Flat Silver -> silver).
 hex: render colour (LEGO colour), rendered in OpenSCAD preview mode so color() shows."""
 import json, os, re, subprocess, sys, html, shutil
 kit = os.path.abspath(sys.argv[1]); meta = json.load(open(os.path.join(kit, 'kit.json')))
@@ -65,7 +65,7 @@ open(os.path.join(kit, 'README.md'), 'w').write('\n'.join(md) + '\n')
 pd = os.path.join(kit, 'print'); shutil.rmtree(pd, ignore_errors=True); os.makedirs(pd)
 def slug(c):
     c = c.lower()
-    for k, v in (('lime', 'green'), ('yellowish green', 'green'), ('blue', 'blue'), ('black', 'black'), ('white', 'white'),
+    for k, v in (('lime', 'lime'), ('yellowish green', 'lime'), ('blue', 'blue'), ('black', 'black'), ('white', 'white'),
                  ('silver', 'silver'), ('titanium', 'titanium'), ('red', 'red'), ('yellow', 'yellow'), ('tan', 'tan'), ('green', 'green')):
         if k in c: return v
     return re.sub(r'[^a-z]+', '', c) or 'any'
