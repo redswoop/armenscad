@@ -52,3 +52,9 @@ Two ways a download's peg prints with no bond, both invisible in the slicer prev
    slicer draws peg and body as separate perimeters. Manifold and Blender's exact boolean both pass the mesh
    through unchanged. `armenscad stlremesh` (Blender voxel remesh, then stlshells --min-vol) fuses it; verify by
    sectioning through the peg (trimesh `section`, plot the loops) and seeing one outline, not a circle in a notch.
+- **Part photos (2026-10-26):** BrickLink and Rebrickable serve 200 px part images to curl; BrickOwl's
+  `img.brickowl.com/files/image_cache/larger/<slug>.jpg` is 700 px and curl-able (find the slug through the
+  part page in a browser tab; the search page blocks curl). Good enough to read holes, plates and fillets.
+  LDraw gives the numbers (read the .dat subparts directly, 1 LDU = 0.4 mm) but simplifies shapes.
+- **`armenscad check` threshold:** overlaps under ~0.02 mm3 print as clear. A soft stop a few degrees away
+  (a rim rising into a plate) will not show; reason about it geometrically.
