@@ -1,0 +1,50 @@
+/* The shell demo's own bits: panel contents and form controls in stand-in
+   form. The shell itself is @redswoop/cyberdos/web/shell.css. */
+* { box-sizing: border-box; }
+:root { --fs: 1; --bg: #14161a; --surface: #1c1f25; --surface-2: #262a31; --surface-3: #30353e; --text: #e4e6eb; --hairline: #2f343d; --live: #6ea8fe; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: calc(13px * var(--fs))/1.4 var(--body, -apple-system, system-ui, sans-serif); }
+#c { display: block; width: 100%; height: 100%; }
+
+.demo-search { padding: 0 8px 8px; }
+.demo-search input, .cd-panel-head select, .demo-param input, .cd-tray select {
+  width: 100%; padding: 5px 8px;
+  font: calc(13px * var(--fs)) var(--body, system-ui, sans-serif);
+  color: var(--text); background: color-mix(in srgb, var(--surface-2) 80%, #000);
+  border: 1px solid var(--hairline); border-radius: 6px;
+}
+.cd-panel-head select { width: auto; padding: 2px 6px; font-weight: 500; }
+.cd-panel-foot button, .cd-tray button.demo-btn {
+  padding: 4px 10px; font: 600 calc(13px * var(--fs)) var(--body, system-ui, sans-serif);
+  color: var(--text); background: var(--surface-3); border: 1px solid var(--hairline); border-radius: 6px; cursor: pointer;
+}
+.cd-panel-foot .demo-apply { background: var(--live); color: #000; border-color: transparent; }
+.demo-spacer { flex: 1; }
+
+.demo-tree { list-style: none; margin: 0; padding: 0; }
+.demo-tree li { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: calc(13px * var(--fs)); }
+.demo-tree li:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.demo-tree li.sel { background: color-mix(in srgb, var(--live) 22%, transparent); }
+.demo-tree li.off .n { opacity: 0.45; }
+.demo-tree li.child { padding-left: 26px; }
+.demo-tree svg { width: 15px; height: 15px; flex: none; opacity: 0.8; }
+.demo-tree .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.demo-tree .eye { border: 0; background: none; color: inherit; padding: 2px; cursor: pointer; opacity: 0.55; display: grid; }
+.demo-tree li:hover .eye, .demo-tree li.off .eye { opacity: 1; }
+.demo-tree .pct { font: calc(12px * var(--fs)) var(--mono, monospace); opacity: 0.75; }
+
+.demo-sec { margin: 8px 4px 4px; font: 600 calc(12px * var(--fs)) var(--body, system-ui); text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.75; }
+.demo-param { display: grid; grid-template-columns: 1fr 90px; gap: 8px; align-items: center; padding: 3px 4px; }
+.demo-param label { font: calc(13px * var(--fs)) var(--mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-panel pre { margin: 0; font: calc(12px * var(--fs)) var(--mono, monospace); white-space: pre-wrap; }
+
+.demo-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.demo-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+:root[data-theme="cyber"] {
+  & .demo-search input, & .cd-panel-head select, & .demo-param input, & .cd-tray select { border-radius: 0; border-color: color-mix(in srgb, var(--live) 25%, transparent); }
+  & .cd-panel-foot button, & .cd-tray button.demo-btn { border-radius: 0; clip-path: var(--slant); padding-inline: 14px; border-color: color-mix(in srgb, var(--chrome) 35%, transparent); }
+  & .cd-panel-foot .demo-apply { background: var(--signal); }
+  & .demo-tree li { border-radius: 0; }
+  & .demo-tree li.sel { background: color-mix(in srgb, var(--live) 18%, transparent); box-shadow: inset 2px 0 var(--live); }
+  & .demo-sec { font-family: var(--mono); color: var(--chrome); opacity: 1; letter-spacing: 0.14em; }
+}

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@redswoop/cyberdos": "github:redswoop/cyberdos#2096a2cb73d52cdffc1fc93d52f00ace3e92e2b6",
+    "lucide": "^1.62.0",
     "three": "^0.170.0"
   },
   "devDependencies": {

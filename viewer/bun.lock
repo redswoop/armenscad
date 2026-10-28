@@ -6,6 +6,7 @@
       "name": "scad-viewer",
       "dependencies": {
         "@redswoop/cyberdos": "github:redswoop/cyberdos#2096a2cb73d52cdffc1fc93d52f00ace3e92e2b6",
+        "lucide": "^1.62.0",
         "three": "^0.170.0",
       },
       "devDependencies": {
@@ -152,6 +153,8 @@
     "has-flag": ["has-flag@4.0.0", "", {}, "sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ=="],
 
     "is-fullwidth-code-point": ["is-fullwidth-code-point@3.0.0", "", {}, "sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg=="],
+
+    "lucide": ["lucide@1.62.0", "", {}, "sha512-/8NUdyLCNCHGd103wuw4s4RLs/nZyXhs+cs5dx1qDjv7zFgmExkVr/LUythjxhy+oWIoYbAU8llv+c0Jsz69QQ=="],
 
     "nanoid": ["nanoid@3.3.18", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w=="],
 

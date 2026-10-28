@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>shell demo · scad viewer</title>
+</head>
+<body>
+  <!-- A mockup of the viewer on the CyberDOS shell: rails and slots with stand-in content.
+       Click the box to select it, Section / Annotate to change what the middle group offers. -->
+  <div class="cd-shell" id="shell">
+    <div class="cd-stage" id="stage"><canvas id="c"></canvas></div>
+    <div class="cd-frame" id="frame">
+      <aside class="cd-slot" data-side="left" id="left">
+        <section class="cd-panel" id="items">
+          <header class="cd-panel-head">
+            <span class="cd-panel-title">Items</span>
+            <select id="item-kind" title="show one kind of item">
+              <option>All items</option><option>Parts</option><option>References</option><option>Notes</option>
+            </select>
+          </header>
+          <div class="demo-search"><input id="item-q" placeholder="search items" /></div>
+          <div class="cd-panel-body"><ul class="demo-tree" id="tree"></ul></div>
+          <footer class="cd-panel-foot"><span id="item-count"></span><span class="demo-spacer"></span><button title="show hidden, invert visibility">⋯</button></footer>
+        </section>
+      </aside>
+      <div class="cd-center"></div>
+      <aside class="cd-slot" data-side="right" id="right">
+        <section class="cd-panel" id="params">
+          <header class="cd-panel-head"><span class="cd-panel-title">Parameters</span></header>
+          <div class="demo-search"><input placeholder="filter names, comments, sections" /></div>
+          <div class="cd-panel-body" id="param-body"></div>
+          <footer class="cd-panel-foot"><span id="dirty">no changes</span><span class="demo-spacer"></span><button>Reset</button><button class="demo-apply">Apply</button></footer>
+        </section>
+        <section class="cd-panel" id="log" data-collapsed>
+          <header class="cd-panel-head"><span class="cd-panel-title">Log</span></header>
+          <div class="cd-panel-body"><pre>render ok · 14 parts · 1.2 s</pre></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+  <script type="module" src="/src/shell-demo.js"></script>
+</body>
+</html>
