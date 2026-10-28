@@ -2,4 +2,5 @@
 export const app = {
   state: null,      // the server's publicState(): file, parts, params, overrides, builtAt, ...
   selected: null,   // selected part name, or null
+  selGlow: 0x334466, // emissive on selected parts (theme.js tints it)
 };

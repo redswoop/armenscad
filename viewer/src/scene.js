@@ -13,7 +13,7 @@ export const canvas = document.querySelector('#c');
 export const stage = canvas.parentElement;
 export const bus = new EventTarget();     // 'camera' after any camera move, 'resize' after the canvas resizes
 
-export const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true });   // stencil: section caps (section.js)
+export const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, alpha: true });   // stencil: section caps (section.js); alpha: a skin's backdrop (theme.js)
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x14161a);
@@ -37,7 +37,14 @@ export const lights = {
 };
 lights.key.position.set(80, -60, 120); lights.fill.position.set(-80, 60, -40);
 scene.add(lights.hemi, lights.key, lights.key.target, lights.fill, lights.fill.target);
-const grid = new THREE.GridHelper(200, 20, 0x3a3f4a, 0x262a33); grid.rotation.x = Math.PI / 2; scene.add(grid);
+let grid = null;
+// the skin's backdrop (theme.js): a background colour, or null to let the page show through; the grid's two line colours
+export function setBackdrop(bg, center = 0x3a3f4a, lines = 0x262a33) {
+  scene.background = bg == null ? null : new THREE.Color(bg);
+  if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
+  grid = new THREE.GridHelper(200, 20, center, lines); grid.rotation.x = Math.PI / 2; scene.add(grid);
+}
+setBackdrop(0x14161a);
 scene.add(new THREE.AxesHelper(20));
 
 // the parts live here; bounds()/fit() frame whatever in it is visible

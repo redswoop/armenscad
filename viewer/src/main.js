@@ -1,7 +1,7 @@
 // Entry point: which model, the picker, keyboard, view buttons, and the SSE wiring.
 // The work lives in scene.js (three.js), parts.js (meshes, picking, selection), params.js (the panel),
 // annotate.js (drawing + notes), refs.js (reference images), overlay.js (image as a plane), section.js
-// (clipping plane), shading.js (shadows, edges, headlight), api.js (server).
+// (clipping plane), shading.js (shadows, edges, headlight), theme.js (the page skin), api.js (server).
 import { MODEL, getModels, getState, connect, reportView } from './api.js';
 import { app } from './app.js';
 import { fit, fitView, setOrtho, isOrtho, setPose, getPose, controls } from './scene.js';
@@ -13,6 +13,7 @@ import { section, toggleSection } from './section.js';
 import { shading } from './shading.js';
 import * as boundsUI from './bounds.js';
 import { installDebug } from './debug.js';
+import { installSkinPicker } from './theme.js';
 
 const $ = (s) => document.querySelector(s);
 document.title = MODEL ? `${MODEL} · scad viewer` : 'scad viewer';
@@ -33,6 +34,7 @@ async function fillSwitcher() {
 }
 if (!MODEL) { showPicker(); throw new Error('no model in url'); }
 fillSwitcher();
+installSkinPicker($('#skin'));
 
 // ---------- views + keys ----------
 document.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => fitView(b.dataset.view)));

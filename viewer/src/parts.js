@@ -133,7 +133,7 @@ export function toggleGhost() { $('#ghost').checked = !$('#ghost').checked; $('#
 // ---------- selection + source ----------
 export async function select(name) {
   app.selected = name; selectedGroup = null;
-  for (const [n, m] of meshes) m.material.emissive.set(n === name ? 0x334466 : 0x000000);
+  for (const [n, m] of meshes) m.material.emissive.set(n === name ? app.selGlow : 0x000000);
   renderPartList();
   bus.dispatchEvent(new Event('select'));
   const p = app.state.parts.find((x) => x.name === name);
@@ -149,7 +149,7 @@ export function selectGroup(g) {
   clearSelect();
   selectedGroup = g;
   const members = new Set(groupMembers(g));
-  for (const [n, m] of meshes) m.material.emissive.set(members.has(n) ? 0x334466 : 0x000000);
+  for (const [n, m] of meshes) m.material.emissive.set(members.has(n) ? app.selGlow : 0x000000);
   renderPartList();
   bus.dispatchEvent(new Event('select'));
 }
