@@ -23,48 +23,10 @@
       <section>
         <h2>Parts <span class="muted" id="tri-total"></span></h2>
         <ul id="parts"></ul>
-        <label class="row"><input type="checkbox" id="ghost" /> reference ghost
-          <input type="range" id="ghost-op" min="0" max="1" step="0.05" value="0.35" /></label>
       </section>
       <section>
-        <h2>Size <span class="muted" id="size-target"></span> <label class="inl" title="wire box with the edge lengths (b)"><input type="checkbox" id="size-box" /> box (b)</label></h2>
+        <h2>Size <span class="muted" id="size-target"></span></h2>
         <div id="size-rows"></div>
-      </section>
-      <section>
-        <h2>View</h2>
-        <div class="btns">
-          <button data-view="iso">Iso</button><button data-view="top">Top</button>
-          <button data-view="front">Front</button><button data-view="side">Side</button>
-          <button data-view="under">Under</button><button id="fit">Fit</button>
-          <button id="ortho" title="orthographic camera (o)">Ortho</button>
-        </div>
-      </section>
-      <section>
-        <h2>Shading</h2>
-        <div class="sec-row">
-          <label class="chk" title="the key light casts shadows"><input type="checkbox" id="sh-shadows" /> shadows</label>
-          <label class="chk" title="dark lines on part edges (creases over 30°)"><input type="checkbox" id="sh-edges" /> edges</label>
-          <label class="chk" title="the fill light follows the camera"><input type="checkbox" id="sh-headlight" /> headlight</label>
-        </div>
-        <div class="sec-row" style="margin-top:6px" title="page skin: plain, or a CyberDOS palette (shared by every viewer tab)">
-          <span class="muted">skin</span><select id="skin"></select>
-        </div>
-      </section>
-      <section>
-        <h2>Section <label class="inl"><input type="checkbox" id="sec-on" /> on (s)</label></h2>
-        <div class="sec-row">
-          <select id="sec-axis" title="cut normal to this axis"><option>X</option><option>Y</option><option>Z</option></select>
-          <input type="range" id="sec-pos" min="0" max="100" step="0.5" title="cut position, mm" />
-          <input type="number" id="sec-mm" step="0.5" title="cut position, mm" />
-          <label class="chk" title="keep the other side"><input type="checkbox" id="sec-flip" /> flip</label>
-        </div>
-        <div class="sec-row" id="sec-rot-row" title="tilt the plane: degrees about each of the other two axes (or right-drag a cut face)">
-          <span class="muted">tilt</span>
-          <label class="chk">↻<span id="sec-rot-a-ax">X</span><input type="number" id="sec-rot-a" step="1" value="0" />°</label>
-          <label class="chk">↻<span id="sec-rot-b-ax">Y</span><input type="number" id="sec-rot-b" step="1" value="0" />°</label>
-          <button id="sec-rot-reset" title="back to axis-aligned">⟲</button>
-        </div>
-        <div id="sec-hint" class="muted"></div>
       </section>
       <section>
         <h2>Annotations <span class="muted" id="a-count"></span> <label class="inl"><input type="checkbox" id="a-showdone" /> show done</label></h2>
@@ -100,7 +62,7 @@
         <div class="p-tools"><input id="p-filter" placeholder="filter names, comments, sections" /><label id="p-sel-wrap" hidden><input type="checkbox" id="p-sel" checked /> selection only</label></div>
         <div id="params"></div>
       </section>
-      <section>
+      <section data-fold="log">
         <h2>Log</h2>
         <pre id="log" class="muted"></pre>
       </section>
@@ -115,6 +77,56 @@
         <button data-tool="text" title="label (t)">T</button>
         <button data-tool="points" title="pick points (k)">⦿</button>
         <span id="tool-hint" class="muted"></span>
+      </div>
+      <div id="views">
+        <div id="cube-wrap">
+          <canvas id="cube" title="click a face, edge or corner to look from there; drag to orbit; double-click for home"></canvas>
+          <button class="rot" data-rot="up" title="rotate 90° up">▲</button><button class="rot" data-rot="down" title="rotate 90° down">▼</button>
+          <button class="rot" data-rot="left" title="rotate 90° left">◀</button><button class="rot" data-rot="right" title="rotate 90° right">▶</button>
+        </div>
+        <div class="btns">
+          <button id="home" title="home: iso and fit (1, or double-click the cube)">iso</button><button id="fit" title="fit (f)">fit</button>
+          <button id="ortho" title="orthographic camera (o)">ortho</button>
+          <button id="zoom-in" title="zoom in">+</button><button id="zoom-out" title="zoom out">−</button>
+        </div>
+      </div>
+      <div id="sec-badges" hidden>
+        <button id="sec-flip" title="flip: keep the other side (or double-click a cut face)">⇅</button>
+        <button id="sec-look" title="look straight at the cut">◎</button>
+        <button id="sec-replane" title="cut along another plane or face">▱</button>
+        <button id="sec-untilt" title="back to axis-aligned" hidden>⟲</button>
+      </div>
+      <div id="dock">
+        <div class="dock-row">
+          <button id="sec-btn" title="section view (s)">section <kbd>s</kbd></button>
+          <span id="sec-read" hidden title=""><span id="sec-plane"></span><input type="number" id="sec-mm" step="0.5" title="cut position along the plane's axis, mm" />mm</span>
+          <span id="sec-hint" class="muted" hidden>click a plane or a face <kbd>esc</kbd></span>
+          <button id="box-btn" title="wire box with the edge lengths (b)">box <kbd>b</kbd></button>
+          <button id="ghost-btn" title="reference ghost (g)" hidden>ghost <kbd>g</kbd></button>
+          <button id="pop-btn" title="display and interface">⚙</button>
+        </div>
+        <div id="pop" hidden>
+          <h3>render</h3>
+          <div class="pop-row">
+            <label title="the key light casts shadows"><input type="checkbox" id="sh-shadows" /> shadows</label>
+            <label title="dark lines on part edges (creases over 30°)"><input type="checkbox" id="sh-edges" /> edges</label>
+            <label title="the fill light follows the camera"><input type="checkbox" id="sh-headlight" /> headlight</label>
+          </div>
+          <div class="pop-row" id="ghost-row" hidden><span class="muted">ghost</span><input type="range" id="ghost-op" min="0" max="1" step="0.05" value="0.35" /></div>
+          <h3>interface</h3>
+          <div class="pop-row" title="page skin: plain, or a CyberDOS palette (shared by every viewer tab)"><span class="muted">skin</span><select id="skin"></select></div>
+          <div class="pop-row" title="text size (shared by every viewer tab)"><span class="muted">text</span><button id="fs-down">A−</button><span id="fs-val"></span><button id="fs-up">A+</button></div>
+          <h3>keys</h3>
+          <div class="keys">
+            <span><kbd>1</kbd></span><span>home (iso)</span>
+            <span><kbd>2</kbd><kbd>3</kbd></span><span>front, back</span>
+            <span><kbd>4</kbd><kbd>5</kbd></span><span>top, bottom</span>
+            <span><kbd>6</kbd><kbd>7</kbd></span><span>right, left</span>
+            <span><kbd>o</kbd><kbd>f</kbd></span><span>perspective / ortho, fit</span>
+            <span><kbd>s</kbd><kbd>b</kbd><kbd>g</kbd></span><span>section, box, ghost</span>
+          </div>
+          </div>
+        </div>
       </div>
       <input id="text-entry" hidden autocomplete="off" />
       <div id="tip" hidden></div>

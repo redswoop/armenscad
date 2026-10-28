@@ -26,9 +26,22 @@
   --code-cm: var(--sub);
   --code-kw: var(--chrome);
   --code-num: var(--live);
+  /* the three axes take the palette's three hues, so nothing in the render goes rainbow */
+  --axis-x: var(--chrome);
+  --axis-y: var(--live);
+  --axis-z: var(--signal);
+  --select: var(--live);
+  --gizmo-knob: var(--text);
+  --gizmo-plane: var(--text);
+  --gizmo-glow: 0.35;
+  --cube-face: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  --cube-text: var(--chrome);
+  --cube-edge: color-mix(in srgb, var(--live) 70%, transparent);
+  --cube-hot: var(--live);
+  --cube-font: var(--display);
   accent-color: var(--live);
 
-  & body { font-size: 13px; }
+  & body { font-size: calc(13px * var(--fs)); }
 
   /* ---------- sidebar: HUD glass over a faint grid ---------- */
   & #side {
@@ -50,10 +63,14 @@
     text-transform: uppercase; letter-spacing: 0.1em;
     color: var(--chrome); text-shadow: var(--glow);
   }
-  & #title { font-size: 13px; letter-spacing: 0.06em; animation: cy-glitch 7s steps(1) infinite; }
+  & #title { font-size: calc(13px * var(--fs)); letter-spacing: 0.06em; animation: cy-glitch 7s steps(1) infinite; }
   & #status { font-family: var(--mono); letter-spacing: 0.06em; }
   & h2 { font-family: var(--mono); font-weight: 400; letter-spacing: 0.14em; color: var(--text); }
   & h2::before { content: "//"; color: var(--chrome); opacity: 0.7; margin-right: -3px; }
+  & #side h2.fold::after { content: none; }
+  & #side h2.fold::before { content: "▾"; }
+  & #side section.folded > h2.fold::before { content: "▸"; }
+  & #side section.folded > h2 { color: var(--sub); }
   & h2 label.inl { font-family: var(--body); letter-spacing: 0; color: var(--sub); }
 
   /* ---------- controls ---------- */
@@ -99,7 +116,7 @@
   & #parts li .sw { border-radius: 1px; transform: rotate(45deg) scale(0.8); }
   /* the skin's faces run wider than the system ones: keep one line per row */
   & #side .row { white-space: nowrap; }
-  & #parts li .t { font-size: 10px; white-space: nowrap; }
+  & #parts li .t { font-size: calc(10px * var(--fs)); white-space: nowrap; }
   & #parts li.group .n, & #params .sec { font-family: var(--mono); letter-spacing: 0.08em; }
   & #annots .pts, & #annots .cap { border-radius: 0; }
 
@@ -137,6 +154,25 @@
     border-color: color-mix(in srgb, var(--live) 30%, transparent);
   }
   & #tools button { clip-path: none; text-transform: none; }
+
+  /* ---------- HUD: view cube buttons, dock, section bar, popover ---------- */
+  & .dock-row, & #pop, & #views .btns {
+    border-radius: 0; clip-path: var(--chamfer); --cut: 8px;
+    border-color: color-mix(in srgb, var(--live) 30%, transparent);
+  }
+  & #views .btns { background: color-mix(in srgb, var(--well) 70%, transparent); border: 1px solid color-mix(in srgb, var(--live) 30%, transparent); padding: 3px; }
+  & #views .btns button { clip-path: none; }
+  & #pop { box-shadow: 0 0 24px -8px var(--live); }
+  & #pop h3 { font-family: var(--mono); font-weight: 400; letter-spacing: 0.14em; color: var(--text); }
+  & #pop h3::before { content: "//"; color: var(--chrome); opacity: 0.7; margin-right: 4px; }
+  & kbd { border-radius: 0; border-color: color-mix(in srgb, var(--live) 30%, transparent); text-transform: none; }
+  & button.on kbd { color: var(--live); }
+  & #sec-btn.on { background: color-mix(in srgb, var(--signal) 18%, var(--surface)); border-color: var(--signal); color: var(--signal); }
+  & #sec-plane { color: var(--signal); letter-spacing: 0.08em; }
+  & #sec-hint { font-family: var(--mono); letter-spacing: 0.06em; color: var(--signal); }
+  & #sec-badges button, & #cube-wrap .rot { clip-path: none; border-radius: 50%; border-color: color-mix(in srgb, var(--signal) 45%, transparent); color: var(--signal); }
+  & #sec-badges button:hover, & #cube-wrap .rot:hover { border-color: var(--signal); box-shadow: 0 0 10px -2px var(--signal); }
+  & #sec-badges button.on { background: color-mix(in srgb, var(--signal) 22%, var(--surface)); }
   & #tools #tool-hint { font-family: var(--mono); letter-spacing: 0.06em; }
   & #code, & #lightbox {
     border-radius: 0; clip-path: var(--chamfer); --cut: 12px;

@@ -1,5 +1,5 @@
 // Size: the axis-aligned bounding box of what is current — the selected part, the selected group, or every
-// visible part — as numbers in the sidebar and, when "box" is on, as a wire box in the scene with the three
+// visible part — as numbers in the sidebar and, when "box" (in the dock) is on, as a wire box in the scene with the three
 // edge lengths labelled. The labels sit on the edges that meet at the box corner nearest the camera, so
 // they stay in front. Recomputed after every rebuild, hide/show and selection change; re-projected on every
 // camera move. `b` toggles the box; remembered per model.
@@ -10,7 +10,7 @@ import { meshes, getSelection } from './parts.js';
 
 const $ = (s) => document.querySelector(s);
 const AXES = ['X', 'Y', 'Z'];
-const COLORS = ['#ff7b7b', '#7bff9a', '#7bb8ff'];
+const COLORS = ['var(--axis-x)', 'var(--axis-y)', 'var(--axis-z)'];
 const fmt = (v) => (Math.round(v * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
 
 export const st = { on: localStorage.getItem(`box:${MODEL}`) === '1', box: new THREE.Box3(), target: '', empty: true };
@@ -74,13 +74,13 @@ function place() {
 export function setBox(on) {
   st.on = on;
   localStorage.setItem(`box:${MODEL}`, on ? '1' : '0');
-  $('#size-box').checked = on;
+  $('#box-btn').classList.toggle('on', on);
   helper.visible = on && !st.empty;
   place();
 }
 export const toggleBox = () => setBox(!st.on);
-$('#size-box').checked = st.on;
-$('#size-box').onchange = (e) => setBox(e.target.checked);
+$('#box-btn').classList.toggle('on', st.on);
+$('#box-btn').onclick = toggleBox;
 
 for (const ev of ['parts', 'visibility', 'select']) bus.addEventListener(ev, update);
 for (const ev of ['camera', 'resize']) bus.addEventListener(ev, place);

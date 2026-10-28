@@ -121,6 +121,19 @@ Armen's ask: "some kind of meta CAD", the things that make sense for interactive
 - `.claude/skills/openscad/SKILL.md` written. `template/` written and proven by creating `sink_rack/` with it.
 - Whale collision table: all ten pairs clear at steer 0/30/-30+tilt 20 and steer 40.
 
+## Done 2026-10-27 (viewer HUD, after Shapr3D)
+
+Armen asked for bigger text and a slimmer side rail, borrowing from Shapr3D (his reference UI). Read Shapr3D's help pages (Section View; Control the view) before the second pass; the first pass guessed and he called the section UX "odd".
+- Text size: `--fs` multiplier on every font size (CyberDOS reads it too), ⚙ → text A−/A+, cookie `armenscad.fs` shared across ports. The rail widens with it.
+- View cube (`viewer/src/viewcube.js`): bevelled, 6 faces + 12 edges + 8 corners as pickable pieces, hover lights the piece, click orbits there (`scene.orbitTo`, animated in azimuth/polar about +Z), drag orbits, double-click home, 90° arrows on hover. Keys are Shapr3D's: 1 iso, 2/3 front/back, 4/5 top/bottom, 6/7 right/left (ctrl optional).
+- Dock bottom-left (`viewer/src/hud.js`): section, box, ghost, ⚙ popover (shadows/edges/headlight, ghost opacity, skin, text size, keys). View, Shading and Section left the rail; every rail section folds by its heading (Log starts folded).
+- Section is a toggle that remembers its plane; the first time on a model it offers the three origin planes (tinted per axis) or a click on a part face. Badges beside the gizmo: flip, look straight at the cut, pick another plane, square up. Dock shows plane + mm field. Typed tilt angles and the slider are gone (arcs + alt/ctrl steps instead).
+- Gizmo redrawn: rotation arcs with arrowheads that mirror toward the camera (they used to stack), a gapped double arrow, a puck in the plane, additive halos.
+- Colours in WebGL come from CSS tokens (`viewer/src/tokens.js`): `--axis-x/y/z` (RGB plain; chrome/live/signal under CyberDOS, so the render keeps the palette's three hues), `--select`, `--gizmo-*`, `--cube-*`. theme.js fires `skin` on the bus.
+- Selection: screen-space outline (inverted hull) in `--select` plus a light tint; hover gets a fainter outline.
+
 ## Still open
+
+- Viewer, from Shapr3D not yet copied: "Section only" (show just the cut faces) and a 2D section mode (ortho with background edges). A selected part hidden behind others only shows in the list (an x-ray was tried and dropped: it also showed the part's own hidden insides).
 
 - Is the next part the fans and spin box, or something unrelated? Decides what tests the template first.

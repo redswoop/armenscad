@@ -8,6 +8,7 @@
 // The ortho frustum is not stored: it is ORTHO_HALF (a constant) x the viewport aspect / zoom.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { axisColors } from './tokens.js';
 
 export const canvas = document.querySelector('#c');
 export const stage = canvas.parentElement;
@@ -45,7 +46,9 @@ export function setBackdrop(bg, center = 0x3a3f4a, lines = 0x262a33) {
   grid = new THREE.GridHelper(200, 20, center, lines); grid.rotation.x = Math.PI / 2; scene.add(grid);
 }
 setBackdrop(0x14161a);
-scene.add(new THREE.AxesHelper(20));
+const axes = new THREE.AxesHelper(20); scene.add(axes);
+// the axes take the skin's axis colours (theme.js fires 'skin' once the skin is on)
+bus.addEventListener('skin', () => { const [x, y, z] = axisColors(); axes.setColors(x, y, z); });
 
 // the parts live here; bounds()/fit() frame whatever in it is visible
 export const group = new THREE.Group(); scene.add(group);
@@ -96,6 +99,7 @@ export function bounds() {
   return b.isEmpty() ? new THREE.Box3(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 30)) : b;
 }
 export function fit(dir) {
+  tween = null;
   const b = bounds(), c = b.getCenter(new THREE.Vector3()), hp = b.getSize(new THREE.Vector3()).length() / 2 * 1.1;
   const cam = view.camera, d = dir ?? cam.position.clone().sub(controls.target).normalize();
   controls.target.copy(c); cam.position.copy(c).addScaledVector(d, hp / tanHalfFov());
@@ -106,6 +110,67 @@ export function fit(dir) {
 export const VIEWS = { iso: [1, -1.2, 0.8], top: [0, 0, 1], front: [0, -1, 0], side: [1, 0, 0], under: [0.01, -0.3, -1] };
 export const fitView = (name) => fit(new THREE.Vector3(...VIEWS[name]).normalize());
 
+// ---------- animated orbits (the view cube, the view keys) ----------
+// orbitTo swings the camera round the target until it looks along -dir; { fit: true } also frames the
+// visible parts on the way. It interpolates azimuth and polar angle about +Z rather than slerping, so front
+// to back goes round the side and Z stays up; straight down (or up) lands with the front at the bottom of
+// the screen. Any drag of the controls cancels it.
+const POLE = 1e-4;
+const toSph = (d) => ({ th: Math.atan2(d.y, d.x), ph: Math.acos(THREE.MathUtils.clamp(d.z, -1, 1)) });
+const fromSph = (th, ph) => new THREE.Vector3(Math.sin(ph) * Math.cos(th), Math.sin(ph) * Math.sin(th), Math.cos(ph));
+let tween = null;
+export function orbitTo(dir, { fit: framing = false, ms = 320 } = {}) {
+  const cam = view.camera, d = new THREE.Vector3(...dir).normalize();
+  const off = cam.position.clone().sub(controls.target), r0 = off.length();
+  const a = toSph(off.normalize()), b = toSph(d);
+  if (Math.hypot(d.x, d.y) < 1e-6) b.th = -Math.PI / 2;
+  b.ph = THREE.MathUtils.clamp(b.ph, POLE, Math.PI - POLE);
+  const dth = THREE.MathUtils.euclideanModulo(b.th - a.th + Math.PI, 2 * Math.PI) - Math.PI;
+  let t1 = controls.target.clone(), r1 = r0, z1 = cam.zoom;
+  if (framing) {
+    const bx = bounds(), hp = bx.getSize(new THREE.Vector3()).length() / 2 * 1.1;
+    t1 = bx.getCenter(new THREE.Vector3()); r1 = hp / tanHalfFov();
+    if (cam.isOrthographicCamera) z1 = ORTHO_HALF / hp;
+  }
+  stopDamping();
+  tween = { t0: performance.now(), ms, a, dth, dph: b.ph - a.ph, tA: controls.target.clone(), t1, r0, r1, z0: cam.zoom, z1 };
+}
+function step() {
+  if (!tween) return;
+  const w = tween, k = Math.min(1, (performance.now() - w.t0) / w.ms), e = 1 - (1 - k) ** 3, cam = view.camera;
+  controls.target.lerpVectors(w.tA, w.t1, e);
+  cam.position.copy(controls.target).addScaledVector(fromSph(w.a.th + w.dth * e, w.a.ph + w.dph * e), THREE.MathUtils.lerp(w.r0, w.r1, e));
+  if (cam.isOrthographicCamera && w.z0 !== w.z1) { cam.zoom = THREE.MathUtils.lerp(w.z0, w.z1, e); cam.updateProjectionMatrix(); }
+  controls.update();
+  bus.dispatchEvent(new Event('camera'));
+  if (k === 1) { tween = null; controls.dispatchEvent({ type: 'end' }); }
+}
+frameHooks.add(step);
+controls.addEventListener('start', () => { tween = null; });
+// the camera's direction from the target, turned by dth about Z and tilted dph off it (radians)
+export function orbitDir(dth, dph) {
+  const s = toSph(view.camera.position.clone().sub(controls.target).normalize());
+  return fromSph(s.th + dth, THREE.MathUtils.clamp(s.ph + dph, POLE, Math.PI - POLE)).toArray();
+}
+export function orbitBy(dth, dph) {       // at once: a drag on the view cube
+  tween = null;
+  const r = view.camera.position.distanceTo(controls.target), d = new THREE.Vector3(...orbitDir(dth, dph));
+  view.camera.position.copy(controls.target).addScaledVector(d, r);
+  stopDamping(); controls.update();
+  bus.dispatchEvent(new Event('camera'));
+}
+// f < 1 zooms in: closer in perspective, a bigger zoom in ortho
+export function zoomBy(f) {
+  const cam = view.camera;
+  if (cam.isOrthographicCamera) { cam.zoom /= f; cam.updateProjectionMatrix(); }
+  else cam.position.sub(controls.target).multiplyScalar(f).add(controls.target);
+  stopDamping(); controls.update();
+  bus.dispatchEvent(new Event('camera'));
+  controls.dispatchEvent({ type: 'end' });
+}
+// drop damping residue so a pose lands exactly (private fields in r170; guard in case they move)
+function stopDamping() { controls._sphericalDelta?.set(0, 0, 0); controls._panOffset?.set(0, 0, 0); controls._scale = 1; }
+
 // ---------- poses ----------
 export function getPose() {
   const cam = view.camera;
@@ -115,14 +180,13 @@ export function getPose() {
 const r3 = (v) => Math.round(v * 1000) / 1000;
 export function setPose(p) {
   if (!p) return;
+  tween = null;
   if (!!p.ortho !== isOrtho()) setOrtho(!!p.ortho);
   const cam = view.camera;
   cam.position.fromArray(p.pos); controls.target.fromArray(p.target);
   if (cam.isPerspectiveCamera) cam.fov = p.fov ?? 40; else cam.zoom = p.zoom ?? 1;
   cam.updateProjectionMatrix();
-  // drop damping residue so the pose lands exactly (private fields in r170; guard in case they move)
-  controls._sphericalDelta?.set(0, 0, 0); controls._panOffset?.set(0, 0, 0); controls._scale = 1;
-  controls.update();
+  stopDamping(); controls.update();
   bus.dispatchEvent(new Event('camera'));
 }
 // how different two poses look: direction angle (deg), target offset (mm), magnification ratio

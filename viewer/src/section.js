@@ -1,9 +1,15 @@
-// Section: one clipping plane through the parts, driven from the sidebar (axis, position, flip, two tilt
-// angles), by the gizmo on the plane (an arrow slides it, two rings turn it), by gestures on a cut face
+// Section: one clipping plane through the parts, after Shapr3D's section view: a toggle (the dock button or s)
+// that remembers its plane, the gizmo on the plane (an arrow slides it, two rings turn it), by gestures on a cut face
 // (drag slides it, click moves the gizmo there, double-click flips it), or from
 // window.viewer.section({ on, axis, mm, flip, rot: [a, b], pivot: [x, y, z] }). three's local clipping on the
 // part (and ghost) materials, so the grid, reference overlays and annotations stay whole. Remembered per
 // model in localStorage.
+//
+// The first time it is turned on for a model (nothing remembered) it asks which plane: the three origin planes
+// show through the middle of the parts, tinted for their normal axis; click one, or click a part's face to cut
+// along that face with the part's side kept. Badges beside the gizmo flip the kept side, turn the camera to
+// look straight at the cut, ask for another plane, and (when tilted) square it up again. The dock shows the
+// plane and an mm field. window.viewer.section never asks.
 //
 // The plane: base normal ±axis (flip picks the sign; it points into the kept half), tilted by rot[0] degrees
 // about the next axis and rot[1] about the one after (X: about Y then Z; Y: about Z then X; Z: about X then
@@ -25,13 +31,15 @@
 // renderOrder; a Group's renderOrder would sort its children as a block, before every cap.
 import * as THREE from 'three';
 import { MODEL } from './api.js';
-import { scene, renderer, canvas, controls, view, bus, bounds, frameHooks, toNDC, raycast, pickFilters } from './scene.js';
+import { scene, renderer, canvas, controls, view, bus, bounds, frameHooks, toNDC, raycast, pickFilters, project, orbitTo } from './scene.js';
 import { meshes, visibleMeshes, allMaterials } from './parts.js';
+import { token, numToken, axisColors } from './tokens.js';
 
 const $ = (s) => document.querySelector(s);
 renderer.localClippingEnabled = true;
 const AX = { X: [1, 0, 0], Y: [0, 1, 0], Z: [0, 0, 1] };
 const KEY = `section:${MODEL}`;
+let chosen = localStorage.getItem(`section:${MODEL}`) !== null;    // a plane has been picked for this model
 export const st = Object.assign({ on: false, axis: 'Z', mm: 0, flip: false, rot: [0, 0], pivot: null }, JSON.parse(localStorage.getItem(KEY) ?? '{}'));
 const plane = new THREE.Plane();
 const axisIndex = () => 'XYZ'.indexOf(st.axis);
@@ -172,23 +180,19 @@ function apply() {
   for (const m of allMaterials()) { m.clippingPlanes = st.on ? [plane] : null; m.needsUpdate = true; }
   syncCaps();
   localStorage.setItem(KEY, JSON.stringify(st));
+  if (st.on) chosen = true;
   syncUI();
 }
 
-function range() {           // slider limits: the parts' extent along the axis, a little past each end
-  const b = bounds(), i = axisIndex();
-  return [Math.floor(b.min.getComponent(i)) - 1, Math.ceil(b.max.getComponent(i)) + 1];
-}
+const PLANE = { X: 'YZ', Y: 'XZ', Z: 'XY' };
 function syncUI() {
-  const [lo, hi] = range();
-  $('#sec-on').checked = st.on; $('#sec-axis').value = st.axis; $('#sec-flip').checked = st.flip;
-  $('#sec-pos').min = lo; $('#sec-pos').max = hi; $('#sec-pos').value = st.mm; $('#sec-mm').value = +st.mm.toFixed(2);
-  const i = axisIndex();
-  $('#sec-rot-a-ax').textContent = 'XYZ'[(i + 1) % 3]; $('#sec-rot-b-ax').textContent = 'XYZ'[(i + 2) % 3];
-  $('#sec-rot-a').value = st.rot[0]; $('#sec-rot-b').value = st.rot[1];
-  $('#sec-rot-row').classList.toggle('tilted', tilted());
-  const where = tilted() ? `tilted ${st.rot.map((a) => +a.toFixed(1)).join('° / ')}°, gizmo at (${st.pivot.map((v) => v.toFixed(1)).join(', ')})` : `${st.axis} ${st.flip ? '≥' : '≤'} ${+st.mm.toFixed(2)} mm`;
-  $('#sec-hint').textContent = st.on ? `showing ${where} · gizmo: arrow slides, rings turn, knob moves it · cut face: drag slides, click moves the gizmo, double-click flips · alt = fine steps` : '';
+  $('#sec-btn').classList.toggle('on', st.on || picking);
+  $('#sec-read').hidden = !st.on || picking; $('#sec-hint').hidden = !picking;
+  $('#sec-plane').textContent = PLANE[st.axis] + (tilted() ? '∠' : '');
+  $('#sec-read').title = `${PLANE[st.axis]} plane${tilted() ? `, tilted ${st.rot.map((a) => +a.toFixed(1)).join('° / ')}° about ${'XYZ'[(axisIndex() + 1) % 3]} / ${'XYZ'[(axisIndex() + 2) % 3]}` : ''}, keeping ${st.axis} ${st.flip ? '≥' : '≤'} the cut`;
+  $('#sec-mm').value = +st.mm.toFixed(2);
+  $('#sec-flip').classList.toggle('on', st.flip);
+  $('#sec-untilt').hidden = !tilted();
 }
 
 // the one entry point: set any of the fields, get the state back
@@ -204,7 +208,6 @@ export function section(opts = {}) {
   console.log(`[viewer] section ${st.on ? `on ${st.axis}${st.flip ? '>=' : '<='}${st.mm}${tilted() ? ` rot ${st.rot.join('/')} pivot ${st.pivot.map((v) => +v.toFixed(2)).join(',')}` : ''}` : 'off'}`);
   return { ...st };
 }
-export const toggleSection = () => section({ on: !st.on });
 
 // ---------- what is under the pointer ----------
 // A capped spot: a cap quad hit, nothing of the kept half nearer to the camera, and the point inside some
@@ -226,59 +229,114 @@ function capUnder(ndc) {
 
 // ---------- the gizmo ----------
 // A transform handle on the plane at the pivot, a constant size on screen, drawn on top of everything:
-//   centre  a knob at the pivot: drag to move the gizmo across the plane (the plane stays; the rings then
-//           turn about the new spot)
+//   knob    a puck lying in the plane at the pivot: drag to move the gizmo across the plane (the plane stays;
+//           the arcs then turn about the new spot)
 //   arrow   double-headed, along the normal: drag to slide the plane
-//   rings   one per in-plane axis (coloured for the world axis it starts as; they follow the plane once it
-//           tilts): drag around the ring to turn the plane about that axis. The angle comes from where the
-//           pointer ray meets the ring's own plane, so it is a pure function of the pointer position (no
-//           drift; letting go and re-grabbing continues exactly). Snaps to 1°, alt 0.1°, ctrl 15°.
-// While a drag runs a faint square with a cross shows the whole plane, so a tilt reads even where no cap
-// is in view, and a label by the pointer shows the value.
-const AXIS_COLOR = [0xe05252, 0x52c452, 0x5a8cf0];    // X, Y, Z
-const ARROW_COLOR = 0xffd166;
-const GIZMO_PX = 56;                                  // ring radius on screen
-const onTop = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false });
-const pickMat = () => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false, colorWrite: false });
+//   arcs    one per in-plane axis, a quarter turn with arrowheads standing up off the plane on the camera's
+//           side (mirrored each frame, so the two never stack behind each other): drag along it
+//           to turn the plane about that axis. The angle comes from where the pointer ray meets the arc's
+//           own plane, so it is a pure function of the pointer position (no drift; letting go and re-grabbing
+//           continues exactly). Snaps to 1°, alt 0.1°, ctrl 15°.
+// Colours are the skin's axis tokens (--axis-x/y/z): the arrow for the base axis it slides along, each arc for
+// the axis it turns about (they keep those once the plane tilts); the knob is --gizmo-knob, and every stroke
+// has an additive halo of --gizmo-glow strength. While a drag runs a faint square (--gizmo-plane) with a cross
+// shows the whole plane, so a tilt reads even where no cap is in view, and a label by the pointer shows the value.
+const GIZMO_PX = 64;
+const WHITE = new THREE.Color(0xffffff);                                  // arc radius on screen
+const look = { axis: axisColors(), knob: 0xe8e8e8, plane: 0xffd166, glow: 0.15 };
+function readLook() {
+  look.axis = axisColors();
+  look.knob = token('--gizmo-knob', '#e8e8e8').hex; look.plane = token('--gizmo-plane', '#ffd166').hex;
+  look.glow = numToken('--gizmo-glow', 0.15);
+}
+// double-sided: the arcs are mirrored (negative scale) to face the camera
+const onTop = (opacity = 1) => new THREE.MeshBasicMaterial({ transparent: true, opacity, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+const glowMat = () => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+const pickMat = () => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false, colorWrite: false, side: THREE.DoubleSide });
 const gizmo = new THREE.Group();
-function ring(axisLocal) {         // torus lies in XY (axis Z); turn its axis onto the local axis it rotates about
-  const g = new THREE.Group();
-  const vis = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 8, 64), onTop(0xffffff, 0.75));
-  const pick = new THREE.Mesh(new THREE.TorusGeometry(1, 0.14, 6, 48), pickMat());
+// a handle: its visible strokes (each with a fatter halo behind it) and an invisible, fatter pick mesh
+function handle(kind, parts, pickGeo, extra = {}) {
+  const g = new THREE.Group(), mats = [], halos = [];
+  for (const { geo, halo, at } of parts) {
+    const m = new THREE.Mesh(geo, onTop()); mats.push(m.material);
+    const items = [m];
+    if (halo) { const h = new THREE.Mesh(halo, glowMat()); halos.push(h.material); items.push(h); }
+    for (const o of items) { if (at) at(o); g.add(o); }
+  }
+  const pick = new THREE.Mesh(pickGeo, pickMat()); pick.userData.handle = g; g.add(pick);
+  g.userData = { handle: kind, mats, halos, color: 0xffffff, ...extra };
+  return g;
+}
+const ARC = [THREE.MathUtils.degToRad(10), THREE.MathUtils.degToRad(72)];    // the turn shown, from the plane up (short of the arrow at 90°)
+function arc(axisLocal) {
+  // the torus lies in its own XY from angle 0; the group turns that plane onto the one the arc lives in, and
+  // the arc spans ARC up from the in-plane axis toward the normal, clear of the arrow
+  const span = ARC[1] - ARC[0], start = (axisLocal === 'x' ? Math.PI / 2 : 0) + ARC[0];
+  const spin = (o) => { o.rotation.z = start; };
+  const tip = (end) => {        // an arrowhead at one end of the arc, pointing along it
+    const a = end ? start + span : start, dir = end ? 1 : -1;
+    const geo = new THREE.ConeGeometry(0.1, 0.26, 16).translate(0, 0.08, 0);
+    return { geo, at: (o) => { o.position.set(Math.cos(a), Math.sin(a), 0); o.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-Math.sin(a) * dir, Math.cos(a) * dir, 0)); } };
+  };
+  const g = handle('ring', [
+    { geo: new THREE.TorusGeometry(1, 0.035, 8, 48, span), halo: new THREE.TorusGeometry(1, 0.12, 8, 48, span), at: spin },
+    tip(false), tip(true),
+  ], new THREE.TorusGeometry(1, 0.2, 6, 24, span + 0.3).rotateZ(-0.15), { axisLocal });
+  g.children.at(-1).rotation.z = start;
   if (axisLocal === 'x') g.rotation.y = Math.PI / 2; else g.rotation.x = Math.PI / 2;
-  g.add(vis, pick); g.userData = { handle: 'ring', axisLocal, vis };
-  pick.userData.handle = g;
   return g;
 }
 function arrow() {
-  const g = new THREE.Group();
-  const mat = onTop(ARROW_COLOR, 0.85);
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.6, 12), mat);
-  const tip1 = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.28, 16), mat); tip1.position.y = 1.44;
-  const tip2 = tip1.clone(); tip2.position.y = -1.44; tip2.rotation.z = Math.PI;
-  const pick = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 3.2, 8), pickMat());
-  g.add(shaft, tip1, tip2, pick);
-  g.rotation.x = Math.PI / 2;      // cylinder runs along Y; the normal is local Z
-  g.userData = { handle: 'arrow', vis: shaft, mat };
-  pick.userData.handle = g;
+  const shaft = (sgn) => ({ geo: new THREE.CylinderGeometry(0.035, 0.035, 0.95, 10).translate(0, sgn * 0.78, 0), halo: new THREE.CylinderGeometry(0.11, 0.11, 0.95, 10).translate(0, sgn * 0.78, 0) });
+  const cone = (sgn) => ({ geo: new THREE.ConeGeometry(0.13, 0.34, 20).translate(0, 1.42, 0).rotateZ(sgn > 0 ? 0 : Math.PI) });
+  const g = handle('arrow', [shaft(1), shaft(-1), cone(1), cone(-1)], new THREE.CylinderGeometry(0.22, 0.22, 3.3, 8));
+  g.rotation.x = Math.PI / 2;      // cylinders run along Y; the normal is local Z
   return g;
 }
-function centre() {
-  const g = new THREE.Group();
-  const vis = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), onTop(ARROW_COLOR, 0.9));
-  const pick = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6), pickMat());
-  g.add(vis, pick); g.userData = { handle: 'centre', vis };
-  pick.userData.handle = g;
-  return g;
+function knob() {
+  return handle('centre', [
+    { geo: new THREE.TorusGeometry(0.2, 0.03, 8, 40), halo: new THREE.TorusGeometry(0.2, 0.09, 8, 40) },
+    { geo: new THREE.SphereGeometry(0.075, 16, 12) },
+  ], new THREE.SphereGeometry(0.32, 8, 6));
 }
-const handles = { centre: centre(), ringX: ring('x'), ringY: ring('y'), arrow: arrow() };
-gizmo.add(handles.centre, handles.ringX, handles.ringY, handles.arrow);
+const handles = { centre: knob(), ringX: arc('x'), ringY: arc('y'), arrow: arrow() };
+// each arc sits in a wrapper the frame hook mirrors in the gizmo's own axes
+const mirror = { x: new THREE.Group().add(handles.ringX), y: new THREE.Group().add(handles.ringY) };
+gizmo.add(handles.centre, mirror.x, mirror.y, handles.arrow);
 const outline = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([
   [-0.5, -0.5], [0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [0.5, 0.5], [-0.5, 0.5], [-0.5, 0.5], [-0.5, -0.5], [-0.5, 0], [0.5, 0], [0, -0.5], [0, 0.5],
-].map(([x, y]) => new THREE.Vector3(x, y, 0))), new THREE.LineBasicMaterial({ color: ARROW_COLOR, transparent: true, opacity: 0.35, depthTest: false }));
+].map(([x, y]) => new THREE.Vector3(x, y, 0))), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.35, depthTest: false }));
+// while picking, a see-through sheet fills it, so the preview reads where it slices through the parts
+const sheet = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+outline.add(sheet);
 gizmo.renderOrder = outline.renderOrder = 1000;
 gizmo.traverse((o) => { o.renderOrder = 1000; });
 scene.add(gizmo, outline);
+// the origin planes offered while picking: through the middle of the parts, a little bigger than them, tinted
+// for their normal axis
+const origin = new THREE.Group();
+for (const axis of 'XYZ') {
+  const i = 'XYZ'.indexOf(axis);
+  const fill = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }));
+  const edge = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(([x, y]) => new THREE.Vector3(x, y, 0))),
+    new THREE.LineBasicMaterial({ transparent: true, opacity: 0.5 }));
+  edge.raycast = () => {};
+  fill.add(edge); fill.userData = { originAxis: axis, edge };
+  const e = (n) => new THREE.Vector3().setComponent(n % 3, 1);      // local x, y on the next two axes, z the normal
+  fill.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(e(i + 1), e(i + 2), e(i)));
+  fill.renderOrder = edge.renderOrder = 999;
+  origin.add(fill);
+}
+origin.visible = false; scene.add(origin);
+// the skin's colours onto everything that does not change per frame
+function dress() {
+  readLook();
+  for (const m of origin.children) { const c = look.axis['XYZ'.indexOf(m.userData.originAxis)]; m.material.color.setHex(c); m.userData.edge.material.color.setHex(c); }
+  outline.material.color.setHex(look.plane); sheet.material.color.setHex(look.plane);
+  handles.centre.userData.color = look.knob;
+}
+bus.addEventListener('skin', dress);
+dress();
 const pickMeshes = Object.values(handles).map((h) => h.children.find((c) => c.userData.handle));
 
 // the plane's frame: local x, y are the base axes j, k carried by the tilt, local z the (unsigned) normal
@@ -297,17 +355,48 @@ function mmPerPixel(p) {
   return 2 * cam.position.distanceTo(p) * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) / h;
 }
 let hover = null;      // handle group under the pointer
+let picking = false;   // asking which plane to cut along
+let preview = null;    // { p, n }: the face a click would cut along, drawn as the outline while picking
+let hotPlane = null;   // the origin plane under the pointer while picking
+const badges = $('#sec-badges');
 frameHooks.add(() => {
-  gizmo.visible = st.on && meshes.size > 0;
-  outline.visible = gizmo.visible && !!drag;
+  gizmo.visible = st.on && !picking && meshes.size > 0;
+  origin.visible = picking;
+  if (picking) {
+    const b = bounds(), c = b.getCenter(new THREE.Vector3()), sz = b.getSize(new THREE.Vector3()).multiplyScalar(1.2);
+    for (const m of origin.children) {
+      const i = 'XYZ'.indexOf(m.userData.originAxis), j = (i + 1) % 3, k = (i + 2) % 3;
+      m.position.copy(c); m.scale.set(Math.max(5, sz.getComponent(j)), Math.max(5, sz.getComponent(k)), 1);
+      const hot = hotPlane === m.userData.originAxis;
+      m.material.opacity = hot ? 0.3 : 0.08; m.userData.edge.material.opacity = hot ? 1 : 0.5;
+    }
+  }
+  outline.visible = (gizmo.visible && !!drag) || (picking && !!preview);
+  sheet.visible = picking; outline.material.opacity = picking ? 0.8 : 0.35;
+  badges.hidden = !gizmo.visible || !!drag;
+  if (preview && picking) {
+    outline.position.copy(preview.p); outline.lookAt(preview.p.clone().add(preview.n));
+    outline.scale.setScalar(bounds().getSize(new THREE.Vector3()).length() * 1.1);
+  }
   if (!gizmo.visible) return;
   const p = pivot(), i = axisIndex();
+  const at = project(p);      // the badges sit just right of the rings
+  if (!at.inFront) badges.hidden = true;
+  else { badges.style.left = Math.min(at.u * canvas.clientWidth + GIZMO_PX + 18, canvas.clientWidth - 40) + 'px'; badges.style.top = at.v * canvas.clientHeight - badges.offsetHeight / 2 + 'px'; }
   gizmo.position.copy(p); gizmo.quaternion.copy(frameQuat()); gizmo.scale.setScalar(GIZMO_PX * mmPerPixel(p));
-  handles.ringX.userData.vis.material.color.setHex(AXIS_COLOR[(i + 1) % 3]);
-  handles.ringY.userData.vis.material.color.setHex(AXIS_COLOR[(i + 2) % 3]);
+  // which side of each axis the camera is on, in the gizmo's frame; the arcs stand up toward it
+  const cam = view.camera.position.clone().sub(p).applyQuaternion(gizmo.quaternion.clone().invert());
+  const side = (v) => (v < 0 ? -1 : 1);
+  if (!drag) { mirror.x.scale.set(1, side(cam.y), side(cam.z)); mirror.y.scale.set(side(cam.x), 1, side(cam.z)); }
+  handles.arrow.userData.color = look.axis[i];
+  handles.ringX.userData.color = look.axis[(i + 1) % 3];
+  handles.ringY.userData.color = look.axis[(i + 2) % 3];
+  // at rest a touch dim; under the pointer or in a drag: lifted toward white, a stronger halo, a little bigger
   for (const h of Object.values(handles)) {
-    const hot = drag?.handle === h || (!drag && hover === h);
-    h.userData.vis.material.opacity = hot ? 1 : h.userData.handle === 'ring' ? 0.7 : 0.85;
+    const u = h.userData, hot = drag?.handle === h || (!drag && hover === h), idle = !!drag && !hot;
+    const c = new THREE.Color(u.color); if (hot) c.lerp(WHITE, 0.35);
+    for (const m of u.mats) { m.color.copy(c); m.opacity = idle ? 0.25 : hot ? 1 : 0.85; }
+    for (const m of u.halos) { m.color.copy(c); m.opacity = idle ? 0 : look.glow * (hot ? 2.2 : 1); }
     h.scale.setScalar(hot ? 1.08 : 1);
   }
   if (outline.visible) {
@@ -357,8 +446,10 @@ function onPlane(ev, c, n) {
   const { o, d } = pointerLine(ev), dn = d.dot(n);
   return Math.abs(dn) < 1e-3 ? null : o.addScaledVector(d, c.clone().sub(o).dot(n) / dn);
 }
+let pickDown = null;
 canvas.addEventListener('pointerdown', (ev) => {
   if (ev.button !== 0 || ev.metaKey) return;
+  if (picking) { pickDown = { x: ev.clientX, y: ev.clientY }; return; }     // a click picks a face; a drag still orbits
   const ndc = toNDC(ev), h = handleUnder(ndc);
   const hit = h ? null : capUnder(ndc);
   if (!h && !hit) return;
@@ -404,6 +495,18 @@ canvas.addEventListener('pointermove', (ev) => {
     }
     return;
   }
+  if (picking) {
+    if (ev.buttons) return;
+    const u = pickUnder(toNDC(ev)), tip = $('#tip');
+    hotPlane = u?.axis ?? null;
+    preview = u && !u.axis ? { p: u.hit.point.clone(), n: faceNormal(u.hit) } : null;
+    if (u) {
+      ev.stopImmediatePropagation(); canvas.style.cursor = 'crosshair';
+      tip.hidden = false; tip.style.left = ev.offsetX + 14 + 'px'; tip.style.top = ev.offsetY + 14 + 'px';
+      tip.textContent = u.axis ? `${PLANE[u.axis]} plane` : `along this face of ${u.hit.object.userData.name}`;
+    } else { if (canvas.style.cursor === 'crosshair') canvas.style.cursor = ''; tip.hidden = true; }
+    return;
+  }
   if (!st.on || ev.buttons) return;
   const ndc = toNDC(ev);
   hover = handleUnder(ndc);
@@ -413,6 +516,12 @@ canvas.addEventListener('pointermove', (ev) => {
   } else if (hover === null && canvas.style.cursor === 'move') canvas.style.cursor = '';
 }, true);
 const endDrag = (ev) => {
+  if (picking && pickDown) {
+    const click = Math.hypot(ev.clientX - pickDown.x, ev.clientY - pickDown.y) <= 4; pickDown = null;
+    const u = click && pickUnder(toNDC(ev));
+    if (u) { ev.stopImmediatePropagation(); $('#tip').hidden = true; u.axis ? pickAxis(u.axis) : cutAlong(u.hit); }      // and the part picker does not select it
+    return;
+  }
   if (!drag) return;
   ev.stopImmediatePropagation();
   if (!drag.moved && !drag.handle) section({ pivot: drag.hit.toArray() });     // a click on a cut face: bring the gizmo here
@@ -428,13 +537,57 @@ canvas.addEventListener('dblclick', (ev) => {
   section({ flip: !st.flip });
 }, true);
 
-$('#sec-on').onchange = (e) => section({ on: e.target.checked });
-$('#sec-axis').onchange = (e) => { st.axis = e.target.value; st.rot = [0, 0]; const [lo, hi] = range(); section({ mm: st.mm >= lo && st.mm <= hi ? st.mm : (lo + hi) / 2 }); };
-const rotInput = (k) => (e) => { const r = [...st.rot]; r[k] = +e.target.value || 0; section({ rot: r }); };
-$('#sec-rot-a').onchange = rotInput(0); $('#sec-rot-b').onchange = rotInput(1);
-$('#sec-rot-reset').onclick = () => section({ rot: [0, 0] });
-$('#sec-flip').onchange = (e) => section({ flip: e.target.checked });
-$('#sec-pos').oninput = (e) => section({ mm: +e.target.value, on: true });
+// ---------- picking the plane ----------
+// the face's outward normal, in world space (parts have no transform, but say so anyway)
+// the nearest origin plane or visible part face under the pointer: { axis, hit } or { hit }
+function pickUnder(ndc) {
+  const hit = raycast(ndc, [...visibleMeshes(), ...origin.children]);
+  return hit ? { axis: hit.object.userData.originAxis, hit } : null;
+}
+const faceNormal = (hit) => hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+// cut along the face under a hit: base axis is the normal's largest component, the tilt makes up the rest, the
+// part's side (behind the face) is kept, and the gizmo sits where the face was clicked
+function cutAlong(hit) {
+  const k = faceNormal(hit).negate(), i = [0, 1, 2].reduce((a, b) => (Math.abs(k.getComponent(b)) > Math.abs(k.getComponent(a)) ? b : a));
+  st.axis = 'XYZ'[i]; st.flip = k.getComponent(i) > 0;
+  const rot = anglesFor(k).map((a) => (Math.abs(a) < 0.01 ? 0 : +a.toFixed(2)));
+  endPick();
+  section({ on: true, rot, pivot: hit.point.toArray() });
+}
+function pickAxis(axis) {          // an origin plane: that axis, untilted, through the middle of the parts
+  endPick();
+  st.axis = axis; st.pivot = null;
+  section({ on: true, rot: [0, 0], mm: bounds().getCenter(new THREE.Vector3()).getComponent(axisIndex()) });
+}
+function startPick() { picking = true; preview = null; hotPlane = null; syncUI(); }
+function endPick() {
+  if (!picking) return;
+  picking = false; preview = null; hotPlane = null; pickDown = null; $('#tip').hidden = true;
+  if (canvas.style.cursor === 'crosshair') canvas.style.cursor = '';
+  syncUI();
+}
+// s and the dock button: off if on; on with the remembered plane, or ask for one the first time (while asking:
+// stop asking)
+export function toggleSection() {
+  if (picking) endPick();
+  else if (st.on) section({ on: false });
+  else if (chosen) section({ on: true });
+  else startPick();
+}
+// Esc while asking stops asking (a cut that was on stays on)
+export function sectionKey(e) {
+  if (!picking || e.key !== 'Escape') return false;
+  endPick();
+  return true;
+}
+
+// ---------- dock + badges ----------
+$('#sec-btn').onclick = toggleSection;
+$('#sec-btn').title = 'section view (s)\ngizmo: the arrow slides the cut, the rings tilt it, the knob moves the gizmo\ncut face: drag slides, click moves the gizmo there, double-click flips\nalt = fine steps (0.1 mm, 0.1°), ctrl on a ring = 15°';
+$('#sec-flip').onclick = () => section({ flip: !st.flip });
+$('#sec-look').onclick = () => orbitTo(normal().negate().toArray(), { fit: true });
+$('#sec-replane').onclick = startPick;
+$('#sec-untilt').onclick = () => section({ rot: [0, 0] });
 $('#sec-mm').onchange = (e) => section({ mm: +e.target.value, on: true });
 bus.addEventListener('parts', () => { if (st.on) apply(); else syncUI(); });   // new meshes get the plane too
 syncUI();
