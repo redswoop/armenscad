@@ -5,6 +5,7 @@
 // paints CSS tokens into the render (the view cube, the section gizmo, the selection highlight).
 // Text size is the same kind of choice: --fs, a multiplier every font size in style.css (and the skin) reads.
 import '@redswoop/cyberdos/web/cyber.css';
+import '@redswoop/cyberdos/web/shell.css';
 import './theme-cyber.css';
 import { GOOGLE_FONTS_URL, PALETTES, DEFAULT_PALETTE, applyPalette, setSkin, startCyberFx, stopCyberFx,
          setRainColors, rainColors, bootLog, hostLabel, mix } from '@redswoop/cyberdos/web';
@@ -13,7 +14,7 @@ import { setBackdrop, bus } from './scene.js';
 
 const KEY = 'armenscad.skin';
 const DEFAULT = DEFAULT_PALETTE.id;
-const SCRAMBLE = '#title, #pick h1, #side h2';
+const SCRAMBLE = '#pick h1, .cd-panel-title';
 export const SKINS = [{ id: 'plain', name: 'plain' }, ...PALETTES.map((p) => ({ id: p.id, name: p.name }))];
 const known = (v) => (SKINS.some((s) => s.id === v) ? v : null);
 

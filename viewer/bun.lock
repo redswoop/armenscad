@@ -5,7 +5,7 @@
     "": {
       "name": "scad-viewer",
       "dependencies": {
-        "@redswoop/cyberdos": "github:redswoop/cyberdos#2096a2cb73d52cdffc1fc93d52f00ace3e92e2b6",
+        "@redswoop/cyberdos": "github:redswoop/cyberdos#0f55c629f4a2edd68b83b7113622883df5b8a1bc",
         "lucide": "^1.62.0",
         "three": "^0.170.0",
       },
@@ -70,7 +70,7 @@
 
     "@napi-rs/lzma-linux-x64-gnu": ["@napi-rs/lzma-linux-x64-gnu@1.5.1", "", { "os": "linux", "cpu": "x64" }, "sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ=="],
 
-    "@redswoop/cyberdos": ["@redswoop/cyberdos@github:redswoop/cyberdos#2096a2c", { "peerDependencies": { "@shopify/react-native-skia": ">=1", "react": ">=18", "react-native": ">=0.76", "react-native-reanimated": ">=3" }, "optionalPeers": ["@shopify/react-native-skia", "react", "react-native", "react-native-reanimated"] }, "redswoop-cyberdos-2096a2c", "sha512-9YwDTgtsIqKQRwgrLY/VTeQWwlhCEiMaNT4hsfjCaIV0GmY3DGvVTijopYzqmDZTrDzK6bRNs2OiN8YxqBklaA=="],
+    "@redswoop/cyberdos": ["@redswoop/cyberdos@github:redswoop/cyberdos#0f55c62", { "peerDependencies": { "@shopify/react-native-skia": ">=1", "react": ">=18", "react-native": ">=0.76", "react-native-reanimated": ">=3" }, "optionalPeers": ["@shopify/react-native-skia", "react", "react-native", "react-native-reanimated"] }, "redswoop-cyberdos-0f55c62", "sha512-m8ORHF7X5dCw6i6nB9kkp5iaLcKygmiHaJBEbN+GOB3kSJizO4HaHC/u6AWntGsbrlhYYiEFF8vlTdWYGmG2Rg=="],
 
     "@rollup/rollup-android-arm-eabi": ["@rollup/rollup-android-arm-eabi@4.63.1", "", { "os": "android", "cpu": "arm" }, "sha512-UZ8sUxPTiHWYX9QNdJedb1kDZSpS1t/VPWBWGSgqHNi9w3Cu6IXvu2mzbhiTiPvtrqgTQJ+zqiAq2iPIPilpaQ=="],
 

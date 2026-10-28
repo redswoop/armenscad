@@ -1,4 +1,4 @@
-// Section: one clipping plane through the parts, after Shapr3D's section view: a toggle (the dock button or s)
+// Section: one clipping plane through the parts, after Shapr3D's section view: a toggle (the left rail's Section, or s)
 // that remembers its plane, the gizmo on the plane (an arrow slides it, two rings turn it), by gestures on a cut face
 // (drag slides it, click moves the gizmo there, double-click flips it), or from
 // window.viewer.section({ on, axis, mm, flip, rot: [a, b], pivot: [x, y, z] }). three's local clipping on the
@@ -8,7 +8,7 @@
 // The first time it is turned on for a model (nothing remembered) it asks which plane: the three origin planes
 // show through the middle of the parts, tinted for their normal axis; click one, or click a part's face to cut
 // along that face with the part's side kept. Badges beside the gizmo flip the kept side, turn the camera to
-// look straight at the cut, ask for another plane, and (when tilted) square it up again. The dock shows the
+// look straight at the cut, ask for another plane, and (when tilted) square it up again. The tool card shows the
 // plane and an mm field. window.viewer.section never asks.
 //
 // The plane: base normal ±axis (flip picks the sign; it points into the kept half), tilted by rot[0] degrees
@@ -186,13 +186,13 @@ function apply() {
 
 const PLANE = { X: 'YZ', Y: 'XZ', Z: 'XY' };
 function syncUI() {
-  $('#sec-btn').classList.toggle('on', st.on || picking);
   $('#sec-read').hidden = !st.on || picking; $('#sec-hint').hidden = !picking;
   $('#sec-plane').textContent = PLANE[st.axis] + (tilted() ? '∠' : '');
   $('#sec-read').title = `${PLANE[st.axis]} plane${tilted() ? `, tilted ${st.rot.map((a) => +a.toFixed(1)).join('° / ')}° about ${'XYZ'[(axisIndex() + 1) % 3]} / ${'XYZ'[(axisIndex() + 2) % 3]}` : ''}, keeping ${st.axis} ${st.flip ? '≥' : '≤'} the cut`;
   $('#sec-mm').value = +st.mm.toFixed(2);
   $('#sec-flip').classList.toggle('on', st.flip);
   $('#sec-untilt').hidden = !tilted();
+  bus.dispatchEvent(new Event('ui'));     // the rails show the section
 }
 
 // the one entry point: set any of the fields, get the state back
@@ -566,7 +566,7 @@ function endPick() {
   if (canvas.style.cursor === 'crosshair') canvas.style.cursor = '';
   syncUI();
 }
-// s and the dock button: off if on; on with the remembered plane, or ask for one the first time (while asking:
+// s and the rail's Section: off if on; on with the remembered plane, or ask for one the first time (while asking:
 // stop asking)
 export function toggleSection() {
   if (picking) endPick();
@@ -581,13 +581,17 @@ export function sectionKey(e) {
   return true;
 }
 
-// ---------- dock + badges ----------
-$('#sec-btn').onclick = toggleSection;
-$('#sec-btn').title = 'section view (s)\ngizmo: the arrow slides the cut, the rings tilt it, the knob moves the gizmo\ncut face: drag slides, click moves the gizmo there, double-click flips\nalt = fine steps (0.1 mm, 0.1°), ctrl on a ring = 15°';
-$('#sec-flip').onclick = () => section({ flip: !st.flip });
-$('#sec-look').onclick = () => orbitTo(normal().negate().toArray(), { fit: true });
-$('#sec-replane').onclick = startPick;
-$('#sec-untilt').onclick = () => section({ rot: [0, 0] });
+// ---------- the rails' Section entry and its group (rails.js), the badges, the card's readout ----------
+export const SECTION_HELP = 'section view (s)\ngizmo: the arrow slides the cut, the rings tilt it, the knob moves the gizmo\ncut face: drag slides, click moves the gizmo there, double-click flips\nalt = fine steps (0.1 mm, 0.1°), ctrl on a ring = 15°';
+export const sectionUI = () => ({ on: st.on, picking, plane: PLANE[st.axis] + (tilted() ? '∠' : ''), mm: +st.mm.toFixed(2), flip: st.flip, tilted: tilted() });
+export const flipSection = () => section({ flip: !st.flip });
+export const lookAtCut = () => orbitTo(normal().negate().toArray(), { fit: true });
+export const replaneSection = () => startPick();
+export const untiltSection = () => section({ rot: [0, 0] });
+$('#sec-flip').onclick = flipSection;
+$('#sec-look').onclick = lookAtCut;
+$('#sec-replane').onclick = replaneSection;
+$('#sec-untilt').onclick = untiltSection;
 $('#sec-mm').onchange = (e) => section({ mm: +e.target.value, on: true });
 bus.addEventListener('parts', () => { if (st.on) apply(); else syncUI(); });   // new meshes get the plane too
 syncUI();

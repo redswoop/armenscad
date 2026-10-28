@@ -132,8 +132,18 @@ Armen asked for bigger text and a slimmer side rail, borrowing from Shapr3D (his
 - Colours in WebGL come from CSS tokens (`viewer/src/tokens.js`): `--axis-x/y/z` (RGB plain; chrome/live/signal under CyberDOS, so the render keeps the palette's three hues), `--select`, `--gizmo-*`, `--cube-*`. theme.js fires `skin` on the bus.
 - Selection: screen-space outline (inverted hull) in `--select` plus a light tint; hover gets a fainter outline.
 
+## Done 2026-10-28 (viewer on the CyberDOS shell)
+
+Armen wants CyberDOS to be his toolkit for all his apps and the viewer at parity with Shapr3D's layout. Spec: `docs/SPEC-shell-2026-10-28.md`, from Shapr3D's help pages (Accessing tools, Adaptive UI, Section View, Items Manager). His verdict: "oh my god, what an improvement".
+- CyberDOS gained a shell layer (`web/shell.css`, `web/shell.ts`; redswoop/cyberdos PR #1): a full-bleed stage, panels in slots at either edge (fold to their header, pinned footer, grip to resize), rails of labelled entries (icon, label, shortcut chips, state line) in groups that sit on a tray, fold to bare tiles, and swap their entries with an animation; trays (popovers) beside an entry. No CRT on the stage. herdr-web's skin shots unchanged.
+- The viewer moved onto it. `viewer/src/rails.js` builds both rails from the modules' state (each module fires `ui` on the bus): left = View / Annotate / Items, a middle group that follows the mode or selection (section tools, drawing tools, Box / Hide / Deselect, Box / Ghost), Section at the bottom; right = Home, Views, Fit, Camera, Display, Settings, Parameters. A tool card at top centre names the active tool. The dock, the toolbar over the render, the ⚙ popover and the buttons under the cube are gone. Panels: Parts (eye buttons), Notes, References left; Parameters (Apply/Reset in the footer), Log right. Size is a readout at the foot of the render. The title is a breadcrumb that opens a model picker (dialog).
+- Legibility: no viewer text under 12px × `--fs`; secondary text is `--dim`, under the skin mixed from the text (a palette's `--sub` read dim at small sizes).
+- `CYBERDOS=<checkout>` on the viewer's vite serves CyberDOS live from a checkout (own dep cache) to develop the two together. Copying into node_modules does not work: vite serves those as immutable.
+- `viewer/shell.html` is the mockup the shell was designed on, stand-in content.
+
 ## Still open
 
+- Viewer, after the shell: Fit and Home frame to the whole window, so a part can sit behind a panel (frame to the space between the rails). One Items panel (parts, notes, references; type filter, search, eye, ⋯ menu) instead of three. Shapr3D's grid (fine, fading, adaptive, spacing on the rail). A Shapr-minimal section gizmo (dashed ring, one arrow, a readout chip, a flip badge).
 - Viewer, from Shapr3D not yet copied: "Section only" (show just the cut faces) and a 2D section mode (ortho with background edges). A selected part hidden behind others only shows in the list (an x-ray was tried and dropped: it also showed the part's own hidden insides).
 
 - Is the next part the fans and spin box, or something unrelated? Decides what tests the template first.

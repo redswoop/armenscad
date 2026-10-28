@@ -86,7 +86,7 @@ export function setOrtho(on) {
   else { persp.position.copy(controls.target).addScaledVector(dir, (ORTHO_HALF / ortho.zoom) / tanHalfFov()); }
   to.updateProjectionMatrix();
   view.camera = to; controls.object = to; controls.update();
-  document.querySelector('#ortho')?.classList.toggle('on', on);
+  bus.dispatchEvent(new Event('ui'));     // the rails show the camera
   console.log(`[viewer] ortho ${on ? 'on zoom=' + ortho.zoom.toFixed(3) : 'off'}`);
   bus.dispatchEvent(new Event('camera'));
 }

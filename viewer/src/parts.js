@@ -7,9 +7,12 @@ import { MODEL, partUrl, refStlUrl, getSource } from './api.js';
 import { scene, group, canvas, fit, toNDC, raycast, bus } from './scene.js';
 import { token } from './tokens.js';
 import { renderParams, focusParams } from './params.js';
+import { createElement, Eye, EyeOff } from 'lucide';
 
 const $ = (s) => document.querySelector(s);
 const loader = new STLLoader();
+const EYE = createElement(Eye).outerHTML, EYE_OFF = createElement(EyeOff).outerHTML;
+const eye = (shown, title) => `<button class="eye" title="${title}">${shown ? EYE : EYE_OFF}</button>`;
 export const meshes = new Map();      // name -> mesh
 let ghost = null;
 const hidden = new Set(JSON.parse(localStorage.getItem(`hidden:${MODEL}`) ?? '[]'));
@@ -27,7 +30,8 @@ export const allMaterials = () => [...[...meshes.values()].flatMap((m) => [m.mat
 export async function refresh(s) {
   app.state = s;
   console.log('[viewer] refresh, built', s.builtAt, 'overrides', JSON.stringify(s.overrides));
-  $('#title').textContent = `${MODEL} / ${s.file ?? '?'}`;
+  // a breadcrumb: the model's path in the workspace (toy / assembly), then the file; it opens the model picker
+  $('#title').innerHTML = `${MODEL.split('/').map((x) => `<span>${x}</span>`).join('<i>/</i>')}<i>/</i><span class="file">${s.file ?? '?'}</span><b>▾</b>`;
   $('#status').textContent = s.error ? `error: ${s.error}` : `built ${new Date(s.builtAt).toLocaleTimeString()} in ${(s.buildMs / 1000).toFixed(1)}s`;
   const ovKeys = Object.keys(s.overrides ?? {});
   $('#override-banner').hidden = ovKeys.length === 0;
@@ -54,7 +58,8 @@ export async function refresh(s) {
     const geo = await loadMesh(refStlUrl());
     ghost = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: +$('#ghost-op').value, depthWrite: false }));
     ghost.visible = ghostOn; scene.add(ghost);
-    $('#ghost-btn').hidden = $('#ghost-row').hidden = false;
+    $('#ghost-row').hidden = false;
+    bus.dispatchEvent(new Event('ui'));     // the rails offer Ghost now
   }
   renderPartList(); paint();      // a rebuilt mesh needs its highlight rebuilt
   if (!refresh.fitted) { fit(); refresh.fitted = true; }
@@ -79,9 +84,9 @@ function renderPartList() {
   }
   const partRow = (p, inGroup) => {
     const li = document.createElement('li');
-    li.className = (p.ok || p.empty ? '' : 'bad ') + (p.empty ? 'empty ' : '') + (app.selected === p.name ? 'selected ' : '') + (inGroup ? 'member' : '');
-    li.innerHTML = `<input type="checkbox" ${hidden.has(p.name) ? '' : 'checked'}><span class="sw" style="background:${p.color}"></span><span class="n">${p.name}</span><span class="t">${p.ok ? `${p.tris}△ ${p.ms}ms` : p.empty ? 'empty' : 'failed'}</span>`;
-    li.querySelector('input').onclick = (e) => { e.stopPropagation(); toggle(p.name); renderPartList(); };
+    li.className = (p.ok || p.empty ? '' : 'bad ') + (p.empty ? 'empty ' : '') + (app.selected === p.name ? 'selected ' : '') + (inGroup ? 'member ' : '') + (hidden.has(p.name) ? 'off' : '');
+    li.innerHTML = `<span class="sw" style="background:${p.color}"></span><span class="n">${p.name}</span><span class="t">${p.ok ? `${p.tris}△ ${p.ms}ms` : p.empty ? 'empty' : 'failed'}</span>${eye(!hidden.has(p.name), hidden.has(p.name) ? 'show' : 'hide')}`;
+    li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); toggle(p.name); renderPartList(); };
     li.onclick = () => select(p.name);
     return li;
   };
@@ -91,11 +96,9 @@ function renderPartList() {
     const shown = members.filter((p) => !hidden.has(p.name)).length;
     const tris = members.reduce((n, p) => n + p.tris, 0), bad = members.filter((p) => !p.ok && !p.empty).length;
     const li = document.createElement('li');
-    li.className = 'group ' + (bad ? 'bad ' : '') + (selectedGroup === name ? 'selected ' : '') + (folded.has(name) ? 'folded' : '');
-    li.innerHTML = `<span class="fold" title="fold / unfold">▾</span><input type="checkbox" title="show / hide the whole group"><span class="n">${name}</span><span class="t">${bad ? `${bad} failed` : `${members.length} parts ${tris}△`}</span>`;
-    const cb = li.querySelector('input');
-    cb.checked = shown === members.length; cb.indeterminate = shown > 0 && shown < members.length;
-    cb.onclick = (e) => { e.stopPropagation(); setGroupHidden(name, shown === members.length); renderPartList(); };
+    li.className = 'group ' + (bad ? 'bad ' : '') + (selectedGroup === name ? 'selected ' : '') + (folded.has(name) ? 'folded ' : '') + (shown === 0 ? 'off' : shown < members.length ? 'some' : '');
+    li.innerHTML = `<span class="fold" title="fold / unfold">▾</span><span class="n">${name}</span><span class="t">${bad ? `${bad} failed` : `${members.length} parts ${tris}△`}</span>${eye(shown > 0, 'show / hide the whole group')}`;
+    li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); setGroupHidden(name, shown === members.length); renderPartList(); };
     li.querySelector('.fold').onclick = (e) => {
       e.stopPropagation();
       folded.has(name) ? folded.delete(name) : folded.add(name);
@@ -121,6 +124,12 @@ function setGroupHidden(g, hide) {
   for (const n of groupMembers(g)) if (hidden.has(n) !== hide) toggle(n);
 }
 export const hiddenParts = () => [...hidden];
+// Hide on the rail: the selected part, or every member of the selected group; the selection goes
+export function hideSelection() {
+  if (app.selected) { if (!hidden.has(app.selected)) toggle(app.selected); }
+  else if (selectedGroup) setGroupHidden(selectedGroup, true);
+  clearSelect();
+}
 // show exactly this set of parts as hidden (a pushed view); does not touch what is remembered per model
 export function setHidden(names) {
   const want = new Set(names);
@@ -129,14 +138,15 @@ export function setHidden(names) {
 }
 
 // ---------- ghost ----------
-// the model's reference STL, see-through; its dock button and opacity row show once there is one
+// the model's reference STL, see-through; the rail's Ghost entry and the Display tray's opacity row show once there is one
 let ghostOn = false;
+export const ghostState = () => ({ available: !!ghost, on: ghostOn });
 export function toggleGhost() {
+  if (!ghost) return;
   ghostOn = !ghostOn;
-  if (ghost) ghost.visible = ghostOn;
-  $('#ghost-btn').classList.toggle('on', ghostOn);
+  ghost.visible = ghostOn;
+  bus.dispatchEvent(new Event('ui'));
 }
-$('#ghost-btn').onclick = toggleGhost;
 $('#ghost-op').oninput = (e) => { if (ghost) ghost.material.opacity = +e.target.value; };
 
 // ---------- selection + source ----------

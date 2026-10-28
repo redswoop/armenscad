@@ -75,6 +75,7 @@ function apply() {
   for (const m of meshes.values()) m.material.needsUpdate = true;    // shadow map on/off recompiles
   localStorage.setItem(KEY, JSON.stringify(st));
   $('#sh-shadows').checked = st.shadows; $('#sh-edges').checked = st.edges; $('#sh-headlight').checked = st.headlight;
+  bus.dispatchEvent(new Event('ui'));     // the Display entry's state line
 }
 export function shading(opts = {}) {
   for (const k of ['shadows', 'edges', 'headlight']) if (opts[k] !== undefined) st[k] = !!opts[k];

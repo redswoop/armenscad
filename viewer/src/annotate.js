@@ -32,14 +32,14 @@ export function setTool(name) {
   if (!tools[name]) return;
   if (name !== tool) { tools[tool].cancel?.(); cur = null; drawing = false; }
   tool = name;
-  stage.className = name === 'select' ? '' : `tool-${name}`;
-  for (const b of document.querySelectorAll('#tools [data-tool]')) b.classList.toggle('on', b.dataset.tool === name);
+  for (const c of [...stage.classList]) if (c.startsWith('tool-')) stage.classList.remove(c);
+  if (name !== 'select') stage.classList.add(`tool-${name}`);
   $('#tool-hint').textContent = tools[name].hint ?? '';
   $('#tip').hidden = true;
   console.log('[viewer] tool', name);
   scheduleRedraw();
+  bus.dispatchEvent(new Event('ui'));     // the rails show the tool
 }
-document.querySelectorAll('#tools [data-tool]').forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
 
 const ctx = (ev) => { const { u, v, ndc } = toScreen(ev); const [W, H] = canvasSize(); return { u, v, ndc, ev, W, H }; };
 const onStage = (ev) => ev.target === canvas || ev.target === ink || ev.target === stage;
@@ -202,7 +202,7 @@ function renderList() {
     ul.appendChild(li);
     if (a.id === pendingFocus) { pendingFocus = null; cap.focus(); li.scrollIntoView({ block: 'nearest' }); }
   }
-  if (!items.length) ul.innerHTML = '<li class="muted empty">none — pick a tool above the render and draw</li>';
+  if (!items.length) ul.innerHTML = '<li class="muted empty">none yet: Annotate on the left rail, then draw on the render</li>';
 }
 $('#a-showdone').onchange = renderList;
 // the two in-plane coordinates for a points note ("x z" for XZ), or all three when it was picked off parts

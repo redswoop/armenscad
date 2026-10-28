@@ -1,5 +1,5 @@
 // Size: the axis-aligned bounding box of what is current — the selected part, the selected group, or every
-// visible part — as numbers in the sidebar and, when "box" (in the dock) is on, as a wire box in the scene with the three
+// visible part — as a readout at the foot of the render and, when Box (on the left rail) is on, as a wire box in the scene with the three
 // edge lengths labelled. The labels sit on the edges that meet at the box corner nearest the camera, so
 // they stay in front. Recomputed after every rebuild, hide/show and selection change; re-projected on every
 // camera move. `b` toggles the box; remembered per model.
@@ -74,13 +74,11 @@ function place() {
 export function setBox(on) {
   st.on = on;
   localStorage.setItem(`box:${MODEL}`, on ? '1' : '0');
-  $('#box-btn').classList.toggle('on', on);
+  bus.dispatchEvent(new Event('ui'));
   helper.visible = on && !st.empty;
   place();
 }
 export const toggleBox = () => setBox(!st.on);
-$('#box-btn').classList.toggle('on', st.on);
-$('#box-btn').onclick = toggleBox;
 
 for (const ev of ['parts', 'visibility', 'select']) bus.addEventListener(ev, update);
 for (const ev of ['camera', 'resize']) bus.addEventListener(ev, place);

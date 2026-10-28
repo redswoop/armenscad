@@ -1,35 +1,29 @@
-// The dock's ⚙ popover (render switches, skin, text size, the key list) and the sidebar's foldable sections.
-// The dock's other buttons belong to their modules (section.js, bounds.js, parts.js); the view cube is
-// viewcube.js.
+// The panels around the render (CyberDOS shell panels): click a panel's header (not its controls) to fold it,
+// drag a slot's inner edge to size it. Both remembered across models; Log starts folded. The Settings tray's
+// text-size buttons. The rails and their trays are rails.js.
+import { foldable, resizable } from '@redswoop/cyberdos/web';
 import { stepTextSize } from './theme.js';
 
 const $ = (s) => document.querySelector(s);
+const recall = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
-// ---------- popover ----------
-const pop = $('#pop'), btn = $('#pop-btn');
-const setPop = (open) => { pop.hidden = !open; btn.classList.toggle('on', open); };
-btn.onclick = () => setPop(pop.hidden);
-// a click anywhere else closes it
-addEventListener('pointerdown', (e) => { if (!pop.hidden && !pop.contains(e.target) && e.target !== btn) setPop(false); }, true);
-// Esc: true when it closed the popover
-export function closePop() { if (pop.hidden) return false; setPop(false); return true; }
 $('#fs-down').onclick = () => stepTextSize(-1);
 $('#fs-up').onclick = () => stepTextSize(1);
 
-// ---------- foldable sidebar sections ----------
-// Click a section's heading (not its controls) to fold it. Remembered across models; Log starts folded.
-const KEY = 'armenscad.folded';
-let folded;
-try { folded = new Set(JSON.parse(localStorage.getItem(KEY) ?? '["log"]')); } catch { folded = new Set(['log']); }
-for (const sec of document.querySelectorAll('#side > section')) {
-  const h = sec.querySelector(':scope > h2');
-  const id = sec.dataset.fold ?? h.firstChild.textContent.trim().toLowerCase();
-  sec.classList.toggle('folded', folded.has(id));
-  h.classList.add('fold');
-  h.addEventListener('click', (e) => {
-    if (e.target.closest('input, button, label, select')) return;
-    const on = sec.classList.toggle('folded');
-    on ? folded.add(id) : folded.delete(id);
-    try { localStorage.setItem(KEY, JSON.stringify([...folded])); } catch {}
-  });
+// ---------- foldable panels ----------
+const FOLD = 'armenscad.folded';
+const folded = new Set(recall(FOLD, ['log']));
+for (const p of document.querySelectorAll('.cd-panel[data-fold]')) {
+  p.toggleAttribute('data-collapsed', folded.has(p.dataset.fold));
+  foldable(p, (c) => { c ? folded.add(p.dataset.fold) : folded.delete(p.dataset.fold); store(FOLD, [...folded]); });
+}
+
+// ---------- slot widths ----------
+const WIDTH = 'armenscad.slotw';
+const widths = recall(WIDTH, {});
+for (const side of ['left', 'right']) {
+  const slot = $(`#${side}`);
+  if (widths[side]) slot.style.setProperty('--cd-slot-w', `${widths[side]}px`);
+  resizable(slot, { onChange: (w) => { widths[side] = w; store(WIDTH, widths); } });
 }

@@ -2,7 +2,7 @@
 // camera. Its 6 faces, 12 bevelled edges and 8 corner facets are the 26 targets, each looking along the sum of
 // the face normals it touches: a face gives the straight-on view, an edge an oblique one, a corner an iso one.
 // Click one to orbit there (scene.orbitTo), drag the cube to orbit freely, double-click it for home. The arrows
-// round it (shown on hover) turn the view 90°; the buttons under it: home (iso and fit), fit, ortho, zoom.
+// round it (shown on hover) turn the view 90°. Home, fit, ortho and the views live on the right rail (rails.js).
 //
 // It is a second, tiny WebGL renderer with its own scene and an orthographic camera that copies the main
 // camera's rotation, redrawn only when the camera moves or the hover changes. Colours and the label face come
@@ -10,7 +10,7 @@
 // fires 'skin' on the bus when they change.
 import * as THREE from 'three';
 import { token, fontToken } from './tokens.js';
-import { view, controls, bus, frameHooks, orbitTo, orbitBy, orbitDir, fit, setOrtho, isOrtho, zoomBy, VIEWS } from './scene.js';
+import { view, controls, bus, frameHooks, orbitTo, orbitBy, orbitDir, zoomBy, VIEWS } from './scene.js';
 
 const $ = (s) => document.querySelector(s);
 const el = $('#cube');
@@ -142,11 +142,8 @@ el.addEventListener('pointerup', (ev) => {
 el.addEventListener('pointerleave', () => { if (!press && hover) { hover = null; dirty = true; } });
 el.addEventListener('dblclick', () => home());
 
-// ---------- the buttons under it ----------
 export const home = () => orbitTo(VIEWS.iso, { fit: true });
-$('#home').onclick = home;
-$('#fit').onclick = () => fit();
-$('#ortho').onclick = () => setOrtho(!isOrtho());
+// the Views tray's zoom buttons
 $('#zoom-in').onclick = () => zoomBy(0.8);
 $('#zoom-out').onclick = () => zoomBy(1.25);
 // the arrows: 90° about the vertical (left / right) or over the top (up / down)

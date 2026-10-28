@@ -4,6 +4,7 @@
    speaks in roles; this file maps the viewer's tokens onto them and dresses
    the sidebar, the overlays on the render and the model picker. theme.js
    turns it on (<html data-theme="cyber">) and tints the three.js scene.
+   The panels, rails and trays are the CyberDOS shell (shell.css), dressed there.
    Roles: chrome = titles, rails, your own ink, errors; live = selected,
    focus, Claude; signal = Apply and the selected note; alarm = overrides.
    ========================================================================== */
@@ -13,6 +14,8 @@
   --panel: var(--surface);
   --line: var(--hairline);
   --fg: var(--text);
+  /* secondary text: a palette's --sub reads dim on its void at small sizes; this one is mixed from the text */
+  --dim: color-mix(in srgb, var(--text) 72%, var(--bg));
   --accent: var(--live);
   --raise: var(--surface-2);
   --well: color-mix(in srgb, var(--surface-2) 70%, #000);
@@ -23,7 +26,7 @@
   --ink: var(--chrome);
   --ink-sel: var(--signal);
   --ink-pts: var(--live);
-  --code-cm: var(--sub);
+  --code-cm: var(--dim);
   --code-kw: var(--chrome);
   --code-num: var(--live);
   /* the three axes take the palette's three hues, so nothing in the render goes rainbow */
@@ -43,18 +46,13 @@
 
   & body { font-size: calc(13px * var(--fs)); }
 
-  /* ---------- sidebar: HUD glass over a faint grid ---------- */
-  & #side {
-    background:
-      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 28px 28px,
-      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 28px 28px,
-      color-mix(in srgb, var(--surface) 82%, transparent);
-    border-right-color: color-mix(in srgb, var(--chrome) 25%, transparent);
-    box-shadow: 4px 0 24px -12px color-mix(in srgb, var(--chrome) 50%, transparent);
-    scrollbar-color: color-mix(in srgb, var(--live) 45%, transparent) transparent;
-  }
-  & #side header {
-    padding-bottom: 8px;
+  /* counts and switches in a panel header: quiet, not the title's display face */
+  & .cd-panel-head :is(.muted, label.inl) { font: calc(12px * var(--fs)) var(--mono); letter-spacing: 0.06em; text-transform: none; text-shadow: none; color: var(--dim); }
+  & .cd-panel-body { scrollbar-color: color-mix(in srgb, var(--live) 45%, transparent) transparent; }
+
+  /* ---------- the title: the model's path, a breadcrumb into the picker ---------- */
+  & #titlebar {
+    padding: 2px 4px 8px;
     border-bottom: 1px solid transparent;
     border-image: linear-gradient(90deg, var(--live), var(--alarm) 55%, transparent) 1;
   }
@@ -63,25 +61,28 @@
     text-transform: uppercase; letter-spacing: 0.1em;
     color: var(--chrome); text-shadow: var(--glow);
   }
-  & #title { font-size: calc(13px * var(--fs)); letter-spacing: 0.06em; animation: cy-glitch 7s steps(1) infinite; }
+  & #title {
+    font: 900 calc(13px * var(--fs))/1.4 var(--display); text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--chrome); text-shadow: var(--glow);
+  }
+  & #title > span:not(.file) { animation: cy-glitch 7s steps(1) infinite; }
+  & #title i, & #title .file, & #title b { color: color-mix(in srgb, var(--chrome) 55%, var(--text)); text-shadow: none; font-weight: 700; }
+  & #title .file { font: calc(12px * var(--fs)) var(--mono); letter-spacing: 0.06em; text-transform: none; }
+  & #title:hover b { color: var(--live); }
   & #status { font-family: var(--mono); letter-spacing: 0.06em; }
   & h2 { font-family: var(--mono); font-weight: 400; letter-spacing: 0.14em; color: var(--text); }
   & h2::before { content: "//"; color: var(--chrome); opacity: 0.7; margin-right: -3px; }
-  & #side h2.fold::after { content: none; }
-  & #side h2.fold::before { content: "▾"; }
-  & #side section.folded > h2.fold::before { content: "▸"; }
-  & #side section.folded > h2 { color: var(--sub); }
-  & h2 label.inl { font-family: var(--body); letter-spacing: 0; color: var(--sub); }
+  & h2 label.inl { font-family: var(--body); letter-spacing: 0; color: var(--dim); }
 
   /* ---------- controls ---------- */
-  & button {
+  & button:not(.cd-entry, .cd-handle) {
     border-radius: 0; clip-path: var(--chamfer); --cut: 6px;
     background: color-mix(in srgb, var(--surface-2) 85%, transparent);
     border-color: color-mix(in srgb, var(--live) 25%, transparent);
     font-family: var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
   }
   & button.small { --cut: 4px; }
-  & button:hover { border-color: var(--live); color: var(--live); text-shadow: 0 0 6px color-mix(in srgb, var(--live) 60%, transparent); }
+  & button:not(.cd-entry, .cd-handle):hover { border-color: var(--live); color: var(--live); text-shadow: 0 0 6px color-mix(in srgb, var(--live) 60%, transparent); }
   & button.on {
     background: color-mix(in srgb, var(--live) 16%, var(--surface));
     border-color: var(--live); color: var(--live); text-shadow: var(--glow);
@@ -114,9 +115,10 @@
   & #parts li.selected .n { color: color-mix(in srgb, var(--text) 40%, #fff); text-shadow: 0 0 10px color-mix(in srgb, var(--live) 40%, transparent); }
   & #parts li.bad { border-left-color: var(--chrome); }
   & #parts li .sw { border-radius: 1px; transform: rotate(45deg) scale(0.8); }
-  /* the skin's faces run wider than the system ones: keep one line per row */
-  & #side .row { white-space: nowrap; }
-  & #parts li .t { font-size: calc(10px * var(--fs)); white-space: nowrap; }
+  & #parts li .t { font-size: calc(12px * var(--fs)); white-space: nowrap; }
+  & #parts li .eye { all: unset; display: grid; place-items: center; width: 22px; height: 22px; flex: none; color: var(--dim); opacity: 0.55; cursor: pointer; }
+  & #parts li:hover .eye, & #parts li.off .eye, & #parts li.some .eye { opacity: 1; }
+  & #parts li .eye:hover { color: var(--live); filter: drop-shadow(0 0 4px var(--live)); }
   & #parts li.group .n, & #params .sec { font-family: var(--mono); letter-spacing: 0.08em; }
   & #annots .pts, & #annots .cap { border-radius: 0; }
 
@@ -149,31 +151,26 @@
       radial-gradient(80% 60% at 100% 110%, color-mix(in srgb, var(--live) 5%, transparent), transparent 60%),
       var(--bg);
   }
-  & #tools {
+  /* ---------- over the render: the tool card, the size readout ---------- */
+  & #card, & #size {
     border-radius: 0; clip-path: var(--chamfer); --cut: 8px;
-    border-color: color-mix(in srgb, var(--live) 30%, transparent);
+    background: var(--crt), color-mix(in srgb, var(--surface) 86%, transparent);
+    border-color: color-mix(in srgb, var(--chrome) 25%, transparent);
   }
-  & #tools button { clip-path: none; text-transform: none; }
+  & #card-name { font: 700 calc(12px * var(--fs)) var(--display); text-transform: uppercase; letter-spacing: 0.16em; color: var(--signal); text-shadow: 0 0 8px color-mix(in srgb, var(--signal) 50%, transparent); }
+  & #size-target { font-family: var(--body); }
 
-  /* ---------- HUD: view cube buttons, dock, section bar, popover ---------- */
-  & .dock-row, & #pop, & #views .btns {
-    border-radius: 0; clip-path: var(--chamfer); --cut: 8px;
-    border-color: color-mix(in srgb, var(--live) 30%, transparent);
-  }
-  & #views .btns { background: color-mix(in srgb, var(--well) 70%, transparent); border: 1px solid color-mix(in srgb, var(--live) 30%, transparent); padding: 3px; }
-  & #views .btns button { clip-path: none; }
-  & #pop { box-shadow: 0 0 24px -8px var(--live); }
-  & #pop h3 { font-family: var(--mono); font-weight: 400; letter-spacing: 0.14em; color: var(--text); }
-  & #pop h3::before { content: "//"; color: var(--chrome); opacity: 0.7; margin-right: 4px; }
+  /* ---------- tray contents ---------- */
+  & .tray-row select { border-radius: 0; font-family: var(--body); }
+  & .cd-tray .keys { font-family: var(--body); }
   & kbd { border-radius: 0; border-color: color-mix(in srgb, var(--live) 30%, transparent); text-transform: none; }
   & button.on kbd { color: var(--live); }
-  & #sec-btn.on { background: color-mix(in srgb, var(--signal) 18%, var(--surface)); border-color: var(--signal); color: var(--signal); }
   & #sec-plane { color: var(--signal); letter-spacing: 0.08em; }
   & #sec-hint { font-family: var(--mono); letter-spacing: 0.06em; color: var(--signal); }
   & #sec-badges button, & #cube-wrap .rot { clip-path: none; border-radius: 50%; border-color: color-mix(in srgb, var(--signal) 45%, transparent); color: var(--signal); }
   & #sec-badges button:hover, & #cube-wrap .rot:hover { border-color: var(--signal); box-shadow: 0 0 10px -2px var(--signal); }
   & #sec-badges button.on { background: color-mix(in srgb, var(--signal) 22%, var(--surface)); }
-  & #tools #tool-hint { font-family: var(--mono); letter-spacing: 0.06em; }
+  & #tool-hint { font-family: var(--mono); letter-spacing: 0.06em; }
   & #code, & #lightbox {
     border-radius: 0; clip-path: var(--chamfer); --cut: 12px;
     border-color: color-mix(in srgb, var(--live) 35%, transparent);
@@ -195,4 +192,13 @@
   & #pick ul li { border-bottom-color: var(--hairline); }
   & #pick ul li a { text-shadow: 0 0 6px color-mix(in srgb, var(--live) 45%, transparent); }
   & #pick ul li a::before { content: "▸ "; color: var(--chrome); }
+  & #models {
+    border-radius: 0; clip-path: var(--chamfer); --cut: 14px;
+    background: var(--crt), linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 28px 28px, linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 28px 28px, var(--surface);
+    border-color: color-mix(in srgb, var(--chrome) 35%, transparent);
+  }
+  & #models-q { border-radius: 0; font-family: var(--input); }
+  & #models-list li { border-bottom-color: var(--hairline); }
+  & #models-list a { text-shadow: 0 0 6px color-mix(in srgb, var(--live) 45%, transparent); }
+  & #models-list a::before { content: "▸ "; color: var(--chrome); }
 }
