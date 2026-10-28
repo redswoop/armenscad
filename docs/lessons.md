@@ -64,3 +64,9 @@ Two ways a download's peg prints with no bond, both invisible in the slicer prev
   LDraw gives the numbers (read the .dat subparts directly, 1 LDU = 0.4 mm) but simplifies shapes.
 - **`armenscad check` threshold:** overlaps under ~0.02 mm3 print as clear. A soft stop a few degrees away
   (a rim rising into a plate) will not show; reason about it geometrically.
+- **Fillet strips need to overlap the faces they fill.** Quarter-round strips laid exactly on a wall and a
+  floor face left 98 open edges in a Manifold union (cardgrid, 2026-10-27). Sink the 2D profile `eps` into both
+  faces (`translate([-eps, -eps]) square(r + eps)` minus the circle) and the part comes out watertight.
+- **Side-by-side mock-up rows beat abstract options.** For a design fork, put each variant in the same model as
+  its own module call in a row beside the assembly (one viewer group), with print poses, so the user can compare
+  and print one. Keep the variants as switches afterwards rather than deleting them.
