@@ -1,6 +1,6 @@
 // The ground: an endless grid in the XY plane (Z = 0), Shapr3D's way, and the print bed on it.
-//   grid   one shader on a huge plane. Three line levels at a time, 10x apart; the finest cell is held between
-//          ~4 and 40 device px by picking the step from the zoom (CELL / px-per-mm at the orbit target), with the
+//   grid   one shader on a plane under the camera. Three line levels at a time, 10x apart; the finest cell is held
+//          between ~2.4 and 24 CSS px by picking the step from the zoom (CELL / px-per-mm at the orbit target), with the
 //          finest level fading out and the coarsest fading in as the zoom crosses a decade, so nothing pops. The X
 //          and Y axes run through the origin in their colours. Lines are antialiased by screen-space derivatives,
 //          never thinner than a CSS px, with an optional halo (the cyber skin's glow). The far grid fades toward
@@ -18,7 +18,7 @@ import { PRINTERS, printer as printerById } from './printers.js';
 import { st as size } from './bounds.js';
 
 const $ = (s) => document.querySelector(s);
-const CELL = 40;                 // device px: the finest cells are this big when a decade starts
+const CELL = 24;                 // CSS px: the finest cells are this big when a decade starts
 
 // ---------- the grid ----------
 const gridMat = new THREE.ShaderMaterial({
@@ -41,7 +41,9 @@ const gridMat = new THREE.ShaderMaterial({
     varying vec3 vPos;
     // distance (device px) from p to the nearest line of a grid of spacing s, per axis
     vec2 linePx(vec2 p, float s) { vec2 c = p / s; vec2 d = max(fwidth(c), 1e-7); return abs(fract(c - 0.5) - 0.5) / d; }
-    float stroke(float px, float w) { return 1.0 - smoothstep(w * 0.5 - 0.6, w * 0.5 + 0.6, px); }
+    // the core's edge is softened over one device px, no more: the look must not change with the pixel ratio
+    // (scene.js lowers it while the camera moves), and a wider band fattens a line twice as much at 1x as at 2x
+    float stroke(float px, float w) { return 1.0 - smoothstep(w * 0.5 - 0.5, w * 0.5 + 0.5, px); }
     float halo(float px, float w) { return exp(-max(px - w * 0.5, 0.0) / uHalo); }
     // a line: a hot core, a halo of its colour (uGlow), composited over what is there
     void lay(inout vec3 rgb, inout float a, vec4 c, float px, float w, float k) {
@@ -83,9 +85,10 @@ const grid = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), gridMat);
 grid.renderOrder = -2; grid.raycast = () => {}; grid.frustumCulled = false;
 scene.add(grid);
 
-// device px per mm at the orbit target, for the step
+// CSS px per mm at the orbit target, for the step (CSS, not device: the pixel ratio changes while the camera
+// moves, and the spacing must not move with it)
 function pxPerMm() {
-  const cam = view.camera, h = stage.clientHeight * renderer.getPixelRatio();
+  const cam = view.camera, h = stage.clientHeight;
   const halfMm = cam.isOrthographicCamera ? cam.top / cam.zoom : cam.position.distanceTo(controls.target) * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
   return h / (2 * halfMm);
 }
@@ -95,7 +98,7 @@ function tick() {
   u.uStep.value = 10 ** fl; u.uFrac.value = L - fl;
   // 1.25 CSS px of core, a halo 2.5 CSS px wide, whatever the ratio (never under 1.5 device px: that aliases)
   const r = renderer.getPixelRatio();
-  u.uWidth.value = Math.max(1.5, 1.25 * r); u.uHalo.value = 2.5 * r;
+  u.uWidth.value = 1.25 * r; u.uHalo.value = 2.5 * r;
   u.uCam.value.copy(cam.position);
   cam.getWorldDirection(u.uDir.value);
   u.uOrtho.value = cam.isOrthographicCamera ? 1 : 0;
