@@ -15,5 +15,16 @@ export function installDebug(extra = {}) {
     three: THREE, scene,
     ...extra,
   };
+  window.viewer.gpu = gpu;
+  const g = gpu();
   console.log('[viewer] debug handle: window.viewer');
+  console.log(`[viewer] gpu: ${g.renderer} · dpr ${g.dpr} · ${g.software ? 'SOFTWARE RENDERING' : 'accelerated'}`);
+}
+// what WebGL is running on; "software" when the browser fell back to SwiftShader (acceleration off or blocked)
+export function gpu() {
+  const gl = scene.renderer.getContext();
+  const d = gl.getExtension('WEBGL_debug_renderer_info');
+  const renderer = d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  return { renderer, vendor: d ? gl.getParameter(d.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR), version: gl.getParameter(gl.VERSION),
+           software: /swiftshader|software|llvmpipe/i.test(renderer), dpr: devicePixelRatio, buffer: [gl.drawingBufferWidth, gl.drawingBufferHeight] };
 }
