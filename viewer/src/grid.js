@@ -87,9 +87,13 @@ scene.add(grid);
 
 // CSS px per mm at the orbit target, for the step (CSS, not device: the pixel ratio changes while the camera
 // moves, and the spacing must not move with it)
+// Measured at the floor under the orbit target, not at the target: orbiting a feature 90 mm up from 9 mm away,
+// the floor is 90 mm off and wants its spacing from there, or it turns into a 0.1 mm moiré.
+const foot = new THREE.Vector3();
 function pxPerMm() {
   const cam = view.camera, h = stage.clientHeight;
-  const halfMm = cam.isOrthographicCamera ? cam.top / cam.zoom : cam.position.distanceTo(controls.target) * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+  foot.set(controls.target.x, controls.target.y, 0);
+  const halfMm = cam.isOrthographicCamera ? cam.top / cam.zoom : cam.position.distanceTo(foot) * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
   return h / (2 * halfMm);
 }
 function tick() {
