@@ -35,9 +35,9 @@
   --axis-z: var(--signal);
   --select: var(--live);
   /* the ground: live-coloured lines with a halo, the bed in the chrome colour, zones in the signal colour */
-  --grid-minor: color-mix(in srgb, var(--live) 26%, transparent);
-  --grid-major: color-mix(in srgb, var(--live) 60%, transparent);
-  --grid-glow: 0.6;
+  --grid-minor: color-mix(in srgb, var(--live) 30%, transparent);
+  --grid-major: color-mix(in srgb, var(--live) 70%, transparent);
+  --grid-glow: 0.8;
   --plate: var(--chrome);
   --plate-zone: var(--signal);
   --gizmo-knob: var(--text);

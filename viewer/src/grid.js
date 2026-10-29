@@ -27,7 +27,7 @@ const gridMat = new THREE.ShaderMaterial({
   uniforms: {
     uMinor: { value: new THREE.Vector4(0.15, 0.16, 0.2, 1) }, uMajor: { value: new THREE.Vector4(0.23, 0.25, 0.29, 1) },
     uX: { value: new THREE.Vector4(0.88, 0.32, 0.32, 1) }, uY: { value: new THREE.Vector4(0.32, 0.77, 0.32, 1) },
-    uGlow: { value: 0 }, uStep: { value: 10 }, uFrac: { value: 0 }, uWidth: { value: 2 },
+    uGlow: { value: 0 }, uStep: { value: 10 }, uFrac: { value: 0 }, uWidth: { value: 2 }, uHalo: { value: 5 },
     uCam: { value: new THREE.Vector3() }, uDir: { value: new THREE.Vector3(0, 0, 1) }, uOrtho: { value: 0 }, uRadius: { value: 1000 },
   },
   vertexShader: `
@@ -36,25 +36,36 @@ const gridMat = new THREE.ShaderMaterial({
   fragmentShader: `
     precision highp float;
     uniform vec4 uMinor, uMajor, uX, uY;
-    uniform float uGlow, uStep, uFrac, uWidth, uRadius, uOrtho;
+    uniform float uGlow, uStep, uFrac, uWidth, uHalo, uRadius, uOrtho;
     uniform vec3 uCam, uDir;
     varying vec3 vPos;
     // distance (device px) from p to the nearest line of a grid of spacing s, per axis
     vec2 linePx(vec2 p, float s) { vec2 c = p / s; vec2 d = max(fwidth(c), 1e-7); return abs(fract(c - 0.5) - 0.5) / d; }
-    float stroke(float px, float w) { return 1.0 - smoothstep(w * 0.5 - 0.5, w * 0.5 + 0.5, px); }
-    float halo(float px, float w) { return exp(-max(px - w * 0.5, 0.0) * 0.22); }
+    float stroke(float px, float w) { return 1.0 - smoothstep(w * 0.5 - 0.6, w * 0.5 + 0.6, px); }
+    float halo(float px, float w) { return exp(-max(px - w * 0.5, 0.0) / uHalo); }
+    // a line: a hot core, a halo of its colour (uGlow), composited over what is there
     void lay(inout vec3 rgb, inout float a, vec4 c, float px, float w, float k) {
-      float s = (stroke(px, w) + halo(px, w) * uGlow * 0.45) * c.a * k;
-      s = min(s, 1.0);
-      rgb = mix(rgb, c.rgb, s); a = a + s * (1.0 - a);
+      float s = stroke(px, w), h = halo(px, w) * uGlow;
+      float cov = min((s + h * 0.7) * c.a * k, 1.0);
+      vec3 col = mix(c.rgb, vec3(1.0), 0.35 * s * k);
+      rgb = mix(rgb, col, cov); a = a + cov * (1.0 - a);
+    }
+    // A level's place in the zoom, k = log10(spacing) - log10(the cell the zoom asks for), runs -1..2 across the
+    // three drawn levels; every look is a smooth function of k, so a level slides from finest to coarsest without a
+    // step: it fades in over (-1, 0], holds and turns from the minor to the major colour over (0, 1], fades out
+    // over (1, 2].
+    void level(inout vec3 rgb, inout float a, vec2 p, float s, float k) {
+      vec2 l = linePx(p, s);
+      float w = k < 0.0 ? 1.0 + k : k > 1.0 ? 2.0 - k : 1.0;
+      vec4 c = mix(uMinor, uMajor, clamp(k, 0.0, 1.0));
+      lay(rgb, a, c, min(l.x, l.y), uWidth, w);
     }
     void main() {
       vec2 p = vPos.xy;
-      vec2 f = linePx(p, uStep), m = linePx(p, uStep * 10.0), c = linePx(p, uStep * 100.0);
       vec3 rgb = vec3(0.0); float a = 0.0;
-      lay(rgb, a, uMinor, min(f.x, f.y), uWidth, (1.0 - uFrac) * 0.8);
-      lay(rgb, a, uMajor, min(m.x, m.y), uWidth, 0.9);
-      lay(rgb, a, uMajor, min(c.x, c.y), uWidth + 1.0, uFrac);
+      level(rgb, a, p, uStep, -uFrac);
+      level(rgb, a, p, uStep * 10.0, 1.0 - uFrac);
+      level(rgb, a, p, uStep * 100.0, 2.0 - uFrac);
       // the axes: X runs along y = 0, Y along x = 0
       lay(rgb, a, uX, abs(p.y) / max(fwidth(p.y), 1e-7), uWidth + 1.0, 1.0);
       lay(rgb, a, uY, abs(p.x) / max(fwidth(p.x), 1e-7), uWidth + 1.0, 1.0);
@@ -82,7 +93,9 @@ function tick() {
   const u = gridMat.uniforms, cam = view.camera;
   const L = Math.log10(CELL / pxPerMm()), fl = Math.floor(L);
   u.uStep.value = 10 ** fl; u.uFrac.value = L - fl;
-  u.uWidth.value = renderer.getPixelRatio();          // 1 CSS px, whatever the ratio
+  // 1.25 CSS px of core, a halo 2.5 CSS px wide, whatever the ratio (never under 1.5 device px: that aliases)
+  const r = renderer.getPixelRatio();
+  u.uWidth.value = Math.max(1.5, 1.25 * r); u.uHalo.value = 2.5 * r;
   u.uCam.value.copy(cam.position);
   cam.getWorldDirection(u.uDir.value);
   u.uOrtho.value = cam.isOrthographicCamera ? 1 : 0;
@@ -201,7 +214,7 @@ function paint() {
   const g = gridMat.uniforms, b = bedMat.uniforms;
   g.uMinor.value = v4('--grid-minor', '#262a33'); g.uMajor.value = v4('--grid-major', '#3a3f4a');
   g.uX.value = v4('--axis-x', '#e05252'); g.uY.value = v4('--axis-y', '#52c452');
-  g.uGlow.value = numToken('--grid-glow', 0);
+  g.uGlow.value = numToken('--grid-glow', 0.25);
   b.uLine.value = v4('--plate', '#d8dbe2'); b.uZone.value = v4('--plate-zone', '#ffd166'); b.uWarn.value = v4('--warn', '#e05252');
   b.uGlow.value = g.uGlow.value;
   volMat.color.setRGB(b.uLine.value.x, b.uLine.value.y, b.uLine.value.z);

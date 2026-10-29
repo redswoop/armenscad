@@ -5,7 +5,7 @@
   --ink:#ff5c5c; --ink-sel:#ffd166; --ink-pts:#6ea8fe;      /* annotations drawn over the render */
   --code-cm:#7a9a6a; --code-kw:#c792ea; --code-num:#f78c6c;
   --axis-x:#e05252; --axis-y:#52c452; --axis-z:#5a8cf0;      /* the world axes: section gizmo, origin planes, size readout, axes in the scene */
-  --grid-minor:#2a2e38; --grid-major:#444a58; --grid-glow:0;  /* the ground grid (grid.js); glow 0..1 is the halo round each line */
+  --grid-minor:#30353f; --grid-major:#50586a; --grid-glow:0.25;  /* the ground grid (grid.js); glow 0..1 is the halo round each line */
   --plate:#d8dbe2; --plate-zone:#ffd166;                     /* the print bed's outline and its exclusion zones */
   --select:#6ea8fe;     /* selected and hovered parts in the render */
   --gizmo-knob:#e8e8e8; --gizmo-plane:#ffd166; --gizmo-glow:0.12;
