@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>gizmo lab · scad viewer</title>
+</head>
+<body>
+  <!-- Three looks for the transform gizmo (src/gizmo.js) side by side over a real model, one camera, one
+       section plane: drag any gizmo and all three follow. ?model=<name> picks the model (default bones). -->
+  <canvas id="c"></canvas>
+  <div id="cols"></div>
+  <div id="val" hidden></div>
+  <div id="hint">drag empty space to orbit · gizmo: shaft slides, dials turn, centre moves · alt fine, ctrl 15° · 1–3 solo a look, 0 all · + − size (the viewer uses 64 px)</div>
+  <script type="module" src="/src/gizmo-lab.js"></script>
+</body>
+</html>
