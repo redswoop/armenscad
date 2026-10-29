@@ -27,7 +27,7 @@ const gridMat = new THREE.ShaderMaterial({
   uniforms: {
     uMinor: { value: new THREE.Vector4(0.15, 0.16, 0.2, 1) }, uMajor: { value: new THREE.Vector4(0.23, 0.25, 0.29, 1) },
     uX: { value: new THREE.Vector4(0.88, 0.32, 0.32, 1) }, uY: { value: new THREE.Vector4(0.32, 0.77, 0.32, 1) },
-    uGlow: { value: 0 }, uStep: { value: 10 }, uFrac: { value: 0 }, uWidth: { value: 2 }, uHalo: { value: 5 },
+    uGlow: { value: 0 }, uStep: { value: 10 }, uFrac: { value: 0 }, uWidth: { value: 2 }, uHalo: { value: 5 }, uCell: { value: 48 },
     uCam: { value: new THREE.Vector3() }, uDir: { value: new THREE.Vector3(0, 0, 1) }, uOrtho: { value: 0 }, uRadius: { value: 1000 },
   },
   vertexShader: `
@@ -36,7 +36,7 @@ const gridMat = new THREE.ShaderMaterial({
   fragmentShader: `
     precision highp float;
     uniform vec4 uMinor, uMajor, uX, uY;
-    uniform float uGlow, uStep, uFrac, uWidth, uHalo, uRadius, uOrtho;
+    uniform float uGlow, uStep, uFrac, uWidth, uHalo, uCell, uRadius, uOrtho;
     uniform vec3 uCam, uDir;
     varying vec3 vPos;
     // distance (device px) from p to the nearest line of a grid of spacing s, per axis
@@ -56,9 +56,15 @@ const gridMat = new THREE.ShaderMaterial({
     // three drawn levels; every look is a smooth function of k, so a level slides from finest to coarsest without a
     // step: it fades in over (-1, 0], holds and turns from the minor to the major colour over (0, 1], fades out
     // over (1, 2].
+    // Density: a level whose cells are under uCell device px on screen (perspective shrinking them toward the
+    // horizon) is dimmed in proportion, so the lit pixels per screen area stay about even instead of piling
+    // up into a glow where the lines crowd.
     void level(inout vec3 rgb, inout float a, vec2 p, float s, float k) {
       vec2 l = linePx(p, s);
       float w = k < 0.0 ? 1.0 + k : k > 1.0 ? 2.0 - k : 1.0;
+      vec2 d = max(fwidth(p), vec2(1e-7));
+      float cellPx = s / max(d.x, d.y);
+      w *= pow(clamp(cellPx / uCell, 0.0, 1.0), 0.8);
       vec4 c = mix(uMinor, uMajor, clamp(k, 0.0, 1.0));
       lay(rgb, a, c, min(l.x, l.y), uWidth, w);
     }
@@ -102,7 +108,7 @@ function tick() {
   u.uStep.value = 10 ** fl; u.uFrac.value = L - fl;
   // 1.25 CSS px of core, a halo 2.5 CSS px wide, whatever the ratio (never under 1.5 device px: that aliases)
   const r = renderer.getPixelRatio();
-  u.uWidth.value = 1.25 * r; u.uHalo.value = 2.5 * r;
+  u.uWidth.value = 1.25 * r; u.uHalo.value = 2.5 * r; u.uCell.value = CELL * r;
   u.uCam.value.copy(cam.position);
   cam.getWorldDirection(u.uDir.value);
   u.uOrtho.value = cam.isOrthographicCamera ? 1 : 0;
