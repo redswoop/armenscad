@@ -18,6 +18,11 @@ const EDGE_DEG = 30;
 const EDGE_COLOR = 0x0c0e12;
 
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// The shadow map is rendered only when something that casts or clips has changed, not every frame: the key light
+// is fixed, so orbiting cannot move a shadow, and the map pass was a full extra draw of every part per frame.
+renderer.shadowMap.autoUpdate = false;
+export const dirtyShadows = () => { renderer.shadowMap.needsUpdate = true; };
+bus.addEventListener('parts', dirtyShadows); bus.addEventListener('visibility', dirtyShadows);
 const { key, fill, hemi } = lights;
 key.shadow.mapSize.set(2048, 2048);
 key.shadow.bias = -0.0005;
@@ -36,6 +41,7 @@ function fitShadow() {
   const cam = key.shadow.camera;
   cam.left = cam.bottom = -r; cam.right = cam.top = r; cam.near = 0.1; cam.far = 4 * r;
   cam.updateProjectionMatrix();
+  dirtyShadows();
 }
 frameHooks.add(() => {
   if (st.shadows) fitShadow();
@@ -57,7 +63,9 @@ function syncParts() {
   for (const m of meshes.values()) {
     m.castShadow = m.receiveShadow = st.shadows;
     m.material.clipShadows = true;
-    if (st.edges) edgesFor(m).visible = true;
+    // no edges on a reference part: WebGL cannot depth-offset lines, so its creases would draw through the design's
+    // faces where the two coincide (and EdgesGeometry on a 500 k triangle LDraw brick is 0.7 s on the main thread)
+    if (st.edges && !m.userData.part?.reference) edgesFor(m).visible = true;
     else { const e = m.children.find((c) => c.userData.edges); if (e) e.visible = false; }
   }
 }
@@ -71,7 +79,7 @@ function apply() {
   fill.intensity = st.headlight ? 0.45 : 0.5;
   if (!st.headlight) { fill.position.set(-80, 60, -40); fill.target.position.set(0, 0, 0); }
   lastFit.makeEmpty();
-  syncParts();
+  syncParts(); dirtyShadows();
   for (const m of meshes.values()) m.material.needsUpdate = true;    // shadow map on/off recompiles
   localStorage.setItem(KEY, JSON.stringify(st));
   $('#sh-shadows').checked = st.shadows; $('#sh-edges').checked = st.edges; $('#sh-headlight').checked = st.headlight;

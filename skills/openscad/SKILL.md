@@ -25,7 +25,7 @@ A toy with several parts is one repo with one subfolder per assembly (`whale/shr
 | File | Role |
 |---|---|
 | `<name>.scad` | Parameters first, in `// ---------- section ----------` blocks (the viewer parses these into a panel). Switches (`show_*`, `animate`) at the top so harnesses can force them off. Modules below, one per feature, assembly at the bottom behind the switches. |
-| `viewer.json` | Viewer manifest: `file`, optional `reference` STL, `defines` (switches to force off), `parts` = named module calls with colours, each with an optional `group` (parts of one assembly, e.g. every PSU piece, fold under one row in the viewer's tree and hide/show/select together). Every new top-level module goes in here. |
+| `viewer.json` | Viewer manifest: `file`, optional `reference` STL, `defines` (switches to force off), `parts` = named module calls with colours, each with an optional `group` (parts of one assembly, e.g. every PSU piece, fold under one row in the viewer's tree and hide/show/select together) and an optional `"reference": true` for a presence part the design is fitted to (an LDraw brick, a bought part): the viewer draws it a hair behind the design and without edge lines, so coincident faces do not flicker. Every new top-level module goes in here. |
 | `print_layout.scad` | `-D part="..."` lays each part on the bed in its print pose. |
 | `check.scad` | Collision pairs. Header line `//   pair: "a" | "b"` lists them; `armenscad check` reads that line. |
 | `compare.scad` | Volume diff against a reference export, when porting an existing part. |

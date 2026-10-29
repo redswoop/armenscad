@@ -7,11 +7,11 @@ import { MODEL, partUrl, refStlUrl, getSource } from './api.js';
 import { scene, group, canvas, fit, toNDC, raycast, bus } from './scene.js';
 import { token } from './tokens.js';
 import { renderParams, focusParams } from './params.js';
-import { createElement, Eye, EyeOff } from 'lucide';
+import { createElement, Eye, EyeOff, ChevronDown } from 'lucide';
 
 const $ = (s) => document.querySelector(s);
 const loader = new STLLoader();
-const EYE = createElement(Eye).outerHTML, EYE_OFF = createElement(EyeOff).outerHTML;
+const EYE = createElement(Eye).outerHTML, EYE_OFF = createElement(EyeOff).outerHTML, CHEVRON = createElement(ChevronDown).outerHTML;
 const eye = (shown, title) => `<button class="eye" title="${title}">${shown ? EYE : EYE_OFF}</button>`;
 export const meshes = new Map();      // name -> mesh
 let ghost = null;
@@ -47,11 +47,15 @@ export async function refresh(s) {
     const geo = await loadMesh(partUrl(p.name, p.version));
     if (m) { m.geometry.dispose(); m.geometry = geo; }
     else {
-      // polygonOffset pushes the surface back a hair so edge lines (shading.js) sit on top without z-fighting
-      m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.55, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
+      // polygonOffset pushes the surface back a hair so edge lines (shading.js) sit on top without z-fighting;
+      // a reference part (manifest `reference: true`, a presence mesh the design is fitted to) goes back further,
+      // so where its faces coincide with the design's the design wins instead of the two flickering as you orbit
+      const po = p.reference ? 3 : 1;
+      m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.55, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: po, polygonOffsetUnits: po }));
       m.userData.name = p.name; meshes.set(p.name, m); group.add(m);
     }
     m.userData.version = p.version; m.userData.part = p;
+    m.material.polygonOffsetFactor = m.material.polygonOffsetUnits = p.reference ? 3 : 1;
     m.visible = !hidden.has(p.name);
   }));
   if (s.reference && !ghost) {
@@ -97,7 +101,7 @@ function renderPartList() {
     const tris = members.reduce((n, p) => n + p.tris, 0), bad = members.filter((p) => !p.ok && !p.empty).length;
     const li = document.createElement('li');
     li.className = 'group ' + (bad ? 'bad ' : '') + (selectedGroup === name ? 'selected ' : '') + (folded.has(name) ? 'folded ' : '') + (shown === 0 ? 'off' : shown < members.length ? 'some' : '');
-    li.innerHTML = `<span class="fold" title="fold / unfold">▾</span><span class="n">${name}</span><span class="t">${bad ? `${bad} failed` : `${members.length} parts ${tris}△`}</span>${eye(shown > 0, 'show / hide the whole group')}`;
+    li.innerHTML = `<span class="fold" title="fold / unfold">${CHEVRON}</span><span class="n">${name}</span><span class="t">${bad ? `${bad} failed` : `${members.length} parts ${tris}△`}</span>${eye(shown > 0, 'show / hide the whole group')}`;
     li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); setGroupHidden(name, shown === members.length); renderPartList(); };
     li.querySelector('.fold').onclick = (e) => {
       e.stopPropagation();

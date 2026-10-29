@@ -92,7 +92,7 @@ class Model {
       project: dir,
       file: null,
       reference: null,
-      parts: [],          // { name, call, color, group, tris, ms, ok, log }
+      parts: [],          // { name, call, color, group, reference, tris, ms, ok, log }; reference: a presence part (an LDraw brick, a bought part) the design is fitted to, drawn behind it
       params: [],         // { section, name, value, comment, line }
       source: '',
       overrides: {},
@@ -253,7 +253,7 @@ class Model {
         let tris = 0;
         try { tris = Math.max(0, ((await stat(out)).size - 84) / 50); } catch {}
         const mod = p.call.match(/^\s*(\w+)\s*\(/);
-        return { name: p.name, call: p.call, color: p.color ?? '#999999', group: p.group ?? null, module: mod?.[1] ?? null,
+        return { name: p.name, call: p.call, color: p.color ?? '#999999', group: p.group ?? null, reference: !!p.reference, module: mod?.[1] ?? null,
                  ok: code === 0 && tris > 0, empty: /top level object is empty/i.test(err + outp), tris, ms: Math.round(performance.now() - t), log, version: Date.now() };   // empty: built fine but produced nothing (a part that is off in this configuration)
       }));
     } catch (e) {

@@ -30,6 +30,7 @@
 // overlap cap (flag set and count != 0), cap (count != 0). Every mesh sits in the scene directly with its own
 // renderOrder; a Group's renderOrder would sort its children as a block, before every cap.
 import * as THREE from 'three';
+import { createElement, FlipVertical2, Focus, Replace, RotateCcw } from 'lucide';
 import { MODEL } from './api.js';
 import { scene, renderer, canvas, controls, view, bus, bounds, frameHooks, toNDC, raycast, pickFilters, project, orbitTo } from './scene.js';
 import { meshes, visibleMeshes, allMaterials } from './parts.js';
@@ -146,17 +147,25 @@ function order(c, i) {
   c.overlap.material.userData.u.uAngle.value = THREE.MathUtils.degToRad(45 + 37 * i);
 }
 // runs before every frame: caps follow the parts (visibility, rebuilt geometry, colour) and the plane
+const lastPlane = new THREE.Plane(), partBox = new THREE.Box3();
+let lastOn = null;
+const boxOf = (geo) => geo.boundingBox ?? (geo.computeBoundingBox(), geo.boundingBox);
 function syncCaps() {
   const b = bounds(), c = b.getCenter(new THREE.Vector3()), size = b.getSize(new THREE.Vector3()).length() * 1.1;
   const n = normal(), p = pivot();
   // the quad sits on the plane under the middle of the parts, not at the pivot: the gizmo can be dragged
   // far off the parts, and a quad centred there stops short of the far side of the cut
   const mid = c.addScaledVector(n, -n.dot(c.clone().sub(p)));
+  // clipShadows: the shadow map depends on the plane (shading.js renders it only on demand)
+  if (!lastPlane.equals(plane) || lastOn !== st.on) { lastPlane.copy(plane); lastOn = st.on; renderer.shadowMap.needsUpdate = true; }
   let k = 0;
   for (const [name, mesh] of meshes) {
     const cp = caps.get(name) ?? makeCap(name, mesh, k);
     if (cp.i !== k) order(cp, k);
-    const on = st.on && mesh.visible;
+    // only a part the plane passes through needs its stencil passes and cap: one wholly on the kept side draws
+    // back and front for a net count of 0, one wholly on the cut side is clipped away. Both are a full extra
+    // draw of the part, twice (the reference parts here are 1.4 M triangles).
+    const on = st.on && mesh.visible && plane.intersectsBox(partBox.copy(boxOf(mesh.geometry)).applyMatrix4(mesh.matrixWorld));
     cp.back.visible = cp.front.visible = cp.overlap.visible = cp.cap.visible = on;
     k++;
     if (!on) continue;
@@ -382,7 +391,7 @@ frameHooks.add(() => {
   const p = pivot(), i = axisIndex();
   const at = project(p);      // the badges sit just right of the rings
   if (!at.inFront) badges.hidden = true;
-  else { badges.style.left = Math.min(at.u * canvas.clientWidth + GIZMO_PX + 18, canvas.clientWidth - 40) + 'px'; badges.style.top = at.v * canvas.clientHeight - badges.offsetHeight / 2 + 'px'; }
+  else { badges.style.left = Math.round(Math.min(at.u * canvas.clientWidth + GIZMO_PX + 18, canvas.clientWidth - 40)) + 'px'; badges.style.top = Math.round(at.v * canvas.clientHeight - badges.offsetHeight / 2) + 'px'; }   // whole px: a 1 px ring on a half pixel smears
   gizmo.position.copy(p); gizmo.quaternion.copy(frameQuat()); gizmo.scale.setScalar(GIZMO_PX * mmPerPixel(p));
   // which side of each axis the camera is on, in the gizmo's frame; the arcs stand up toward it
   const cam = view.camera.position.clone().sub(p).applyQuaternion(gizmo.quaternion.clone().invert());
@@ -588,6 +597,9 @@ export const flipSection = () => section({ flip: !st.flip });
 export const lookAtCut = () => orbitTo(normal().negate().toArray(), { fit: true });
 export const replaneSection = () => startPick();
 export const untiltSection = () => section({ rot: [0, 0] });
+// the badges' icons: the same lucide marks as the rail's Section group (rails.js); the old text glyphs were not
+// in the skin's font and fell back to a thin system face
+for (const [id, icon] of [['sec-flip', FlipVertical2], ['sec-look', Focus], ['sec-replane', Replace], ['sec-untilt', RotateCcw]]) $('#' + id).replaceChildren(createElement(icon));
 $('#sec-flip').onclick = flipSection;
 $('#sec-look').onclick = lookAtCut;
 $('#sec-replane').onclick = replaneSection;

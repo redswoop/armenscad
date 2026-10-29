@@ -15,7 +15,7 @@ import { view, controls, bus, frameHooks, orbitTo, orbitBy, orbitDir, zoomBy, VI
 const $ = (s) => document.querySelector(s);
 const el = $('#cube');
 const renderer = new THREE.WebGLRenderer({ canvas: el, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.max(2, Math.min(devicePixelRatio, 2)));     // supersampled on 1x displays, as scene.js
 const scene = new THREE.Scene();
 const cam = new THREE.OrthographicCamera(-1.5, 1.5, 1.5, -1.5, 0.1, 20);
 

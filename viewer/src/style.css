@@ -23,12 +23,13 @@ ul { list-style:none; margin:0; padding:0; }
 #parts li .n { flex:1; }
 #parts li .t { color:var(--dim); font-size:calc(12px * var(--fs)); font-family:var(--mono); }
 #parts li.bad .n { color:var(--bad); }
-#parts li.member { padding-left:26px; }
+#parts li.member { padding-left:36px; }
 #parts li.empty .n { color:var(--dim); }
 #parts li.group .n { font-weight:600; }
-#parts li.group .fold { width:12px; flex:none; color:var(--dim); font-size:calc(12px * var(--fs)); text-align:center; transition:transform .12s; }
+#parts li.group .fold { display:grid; place-items:center; width:22px; height:22px; flex:none; color:var(--dim); border-radius:4px; transition:transform .12s; }
+#parts li.group .fold svg { width:16px; height:16px; stroke-width:2.5; }
 #parts li.group.folded .fold { transform:rotate(-90deg); }
-#parts li.group .fold:hover { color:var(--fg); }
+#parts li.group .fold:hover { color:var(--fg); background:color-mix(in srgb, var(--fg) 10%, transparent); }
 .row { display:flex; align-items:center; gap:8px; padding:6px; }
 .row input[type=range] { flex:1; }
 .btns { display:flex; flex-wrap:wrap; gap:6px; }
@@ -148,7 +149,12 @@ h2 label.inl { text-transform:none; letter-spacing:0; font-size:calc(12px * var(
 kbd { font:calc(12px * var(--fs)) var(--mono); color:var(--dim); border:1px solid var(--line); border-radius:3px; padding:0 3px; margin-left:2px; }
 /* badges beside the section gizmo (section.js places them) */
 #sec-badges { position:absolute; display:flex; flex-direction:column; gap:4px; }
-#sec-badges button { width:calc(28px * var(--fs)); height:calc(28px * var(--fs)); padding:0; border-radius:50%; font-size:calc(14px * var(--fs)); line-height:1; background:color-mix(in srgb, var(--well) 85%, transparent); }
+/* the badges are CyberDOS tiles (.cd-entry-tile, shell.css: filled, chamfered by the skin): straight edges stay
+   crisp on a 1x display where any ring or 1 px curve aliases; smaller than the rail's tiles */
+#sec-badges button { width:round(calc(28px * var(--fs)), 2px); height:round(calc(28px * var(--fs)), 2px); padding:0; border:0; border-radius:var(--cd-radius, 6px); }
+#sec-badges button svg { width:58%; height:58%; }
+#sec-badges button:hover { color:var(--accent); }
+#sec-badges button.on { color:var(--accent); background:color-mix(in srgb, var(--accent) 22%, var(--cd-tile-bg, var(--raise))); }
 /* the cube's rotate arrows show on hover */
 #cube-wrap { position:relative; padding:14px; }
 #cube-wrap .rot { position:absolute; padding:0; width:18px; height:18px; font-size:9px; line-height:1; border-radius:50%; opacity:0; transition:opacity .15s; background:color-mix(in srgb, var(--well) 80%, transparent); }

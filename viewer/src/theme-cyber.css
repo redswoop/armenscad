@@ -119,6 +119,7 @@
   & #parts li .eye { all: unset; display: grid; place-items: center; width: 22px; height: 22px; flex: none; color: var(--dim); opacity: 0.55; cursor: pointer; }
   & #parts li:hover .eye, & #parts li.off .eye, & #parts li.some .eye { opacity: 1; }
   & #parts li .eye:hover { color: var(--live); filter: drop-shadow(0 0 4px var(--live)); }
+  & #parts li.group .fold:hover { color: var(--live); background: none; filter: drop-shadow(0 0 4px var(--live)); }
   & #parts li.group .n, & #params .sec { font-family: var(--mono); letter-spacing: 0.08em; }
   & #annots .pts, & #annots .cap { border-radius: 0; }
 
@@ -167,9 +168,11 @@
   & button.on kbd { color: var(--live); }
   & #sec-plane { color: var(--signal); letter-spacing: 0.08em; }
   & #sec-hint { font-family: var(--mono); letter-spacing: 0.06em; color: var(--signal); }
-  & #sec-badges button, & #cube-wrap .rot { clip-path: none; border-radius: 50%; border-color: color-mix(in srgb, var(--signal) 45%, transparent); color: var(--signal); }
-  & #sec-badges button:hover, & #cube-wrap .rot:hover { border-color: var(--signal); box-shadow: 0 0 10px -2px var(--signal); }
-  & #sec-badges button.on { background: color-mix(in srgb, var(--signal) 22%, var(--surface)); }
+  & #cube-wrap .rot { clip-path: none; border-radius: 50%; border-color: color-mix(in srgb, var(--signal) 80%, transparent); color: var(--signal); }
+  & #cube-wrap .rot:hover { border-color: var(--signal); box-shadow: 0 0 10px -2px var(--signal); }
+  & #sec-badges button { clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%); }
+  & #sec-badges button:hover { color: var(--live); }
+  & #sec-badges button.on { color: var(--signal); background: color-mix(in srgb, var(--signal) 22%, var(--cd-tile-bg)); }
   & #tool-hint { font-family: var(--mono); letter-spacing: 0.06em; }
   & #code, & #lightbox {
     border-radius: 0; clip-path: var(--chamfer); --cut: 12px;

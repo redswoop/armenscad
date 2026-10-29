@@ -15,7 +15,14 @@ export const stage = canvas.parentElement;
 export const bus = new EventTarget();     // 'camera' after any camera move, 'resize' after the canvas resizes
 
 export const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, alpha: true });   // stencil: section caps (section.js); alpha: a skin's backdrop (theme.js)
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// Pixel ratio: 2 device px per CSS px when the camera is still (on a 1x display that supersamples the frame, so
+// hairlines, curves and the gizmo's rims come out antialiased like the DOM chrome instead of 1 px aliased), the
+// display's own ratio while the camera moves (the 4x fill of the still frame drops a 1.5 M triangle orbit from 60
+// to ~43 fps at 2245 px wide; nobody sees aliasing on a moving frame). The loop switches ~0.2 s after the last move.
+const RATIO_STILL = 2, RATIO_MOVING = Math.min(devicePixelRatio, 2);
+let lastMove = performance.now(), ratio = RATIO_STILL;
+renderer.setPixelRatio(ratio);
+function setRatio(r) { if (r === ratio) return; ratio = r; renderer.setPixelRatio(r); renderer.setSize(stage.clientWidth, stage.clientHeight, false); }
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x14161a);
 
@@ -28,6 +35,7 @@ export const view = { camera: persp };
 export const controls = new OrbitControls(persp, canvas);
 controls.enableDamping = true;
 controls.addEventListener('change', () => bus.dispatchEvent(new Event('camera')));
+bus.addEventListener('camera', () => { lastMove = performance.now(); });
 
 // lights: sky/ground ambient, a fixed key (the one that casts shadows, shading.js), a fill (shading.js can
 // turn it into a headlight that follows the camera so shadowed interiors stay readable)
@@ -71,7 +79,7 @@ function clip() {
   persp.far = far; persp.near = far / 50000; persp.updateProjectionMatrix();
   ortho.far = far; ortho.near = -far; ortho.updateProjectionMatrix();
 }
-(function loop() { controls.update(); clip(); for (const f of frameHooks) f(); renderer.render(scene, view.camera); requestAnimationFrame(loop); })();
+(function loop() { controls.update(); clip(); for (const f of frameHooks) f(); setRatio(performance.now() - lastMove < 200 ? RATIO_MOVING : RATIO_STILL); renderer.render(scene, view.camera); requestAnimationFrame(loop); })();
 
 const tanHalfFov = () => Math.tan(THREE.MathUtils.degToRad(persp.fov / 2));
 
