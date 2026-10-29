@@ -46,6 +46,7 @@ export function update() {
   $('#size-rows').innerHTML = AXES.map((a, i) => `<div class="size-row" style="color:${COLORS[i]}"><span class="ax">${a}</span><b>${st.empty ? '–' : fmt(size[i])}</b><span class="muted">${st.empty ? '' : `${fmt(st.box.min.getComponent(i))} … ${fmt(st.box.max.getComponent(i))}`}</span></div>`).join('');
   helper.visible = st.on && !st.empty;
   place();
+  bus.dispatchEvent(new Event('bounds'));     // grid.js checks the measured box against the printer
 }
 
 // labels at the midpoints of the three edges leaving the corner nearest the camera

@@ -85,7 +85,7 @@
             <button class="rot" data-rot="left" title="rotate 90° left">◀</button><button class="rot" data-rot="right" title="rotate 90° right">▶</button>
           </div>
         </div>
-        <div id="size"><span id="size-target"></span><div id="size-rows"></div></div>
+        <div id="size"><span id="size-target"></span><div id="size-rows"></div><span id="size-fit" hidden></span></div>
         <div id="lightbox" hidden>
           <div class="lb-head"><span id="lb-title"></span><span class="lb-btns"><button id="lb-place" class="small">place as overlay</button><button id="lb-close" class="small">×</button></span></div>
           <img id="lb-img" alt="" />
@@ -130,6 +130,9 @@
       <label class="tray-chk" title="dark lines on part edges (creases over 30°)"><input type="checkbox" id="sh-edges" /> Edges</label>
       <label class="tray-chk" title="the fill light follows the camera"><input type="checkbox" id="sh-headlight" /> Headlight</label>
       <div class="tray-row" id="ghost-row" hidden><span>Ghost</span><input type="range" id="ghost-op" min="0" max="1" step="0.05" value="0.35" /></div>
+      <p class="cd-tray-title">Ground</p>
+      <label class="tray-chk" title="the grid on the XY plane (spacing follows the zoom)"><input type="checkbox" id="sh-grid" /> Grid</label>
+      <div class="tray-row" title="show a printer's bed, centred on the origin, with its exclusion zones; the size readout says whether the measured parts fit"><span>Printer</span><select id="printer"></select></div>
     </div>
     <div id="tray-settings">
       <p class="cd-tray-title">Interface</p>

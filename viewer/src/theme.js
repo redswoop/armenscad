@@ -8,7 +8,7 @@ import '@redswoop/cyberdos/web/cyber.css';
 import '@redswoop/cyberdos/web/shell.css';
 import './theme-cyber.css';
 import { GOOGLE_FONTS_URL, PALETTES, DEFAULT_PALETTE, applyPalette, setSkin, startCyberFx, stopCyberFx,
-         setRainColors, rainColors, bootLog, hostLabel, mix } from '@redswoop/cyberdos/web';
+         setRainColors, rainColors, bootLog, hostLabel } from '@redswoop/cyberdos/web';
 import { MODEL } from './api.js';
 import { setBackdrop, bus } from './scene.js';
 
@@ -48,8 +48,8 @@ export function setTheme(id, { flip = false } = {}) {
   applyPalette(pal.stock ? {} : c);
   setRainColors(rainColors(c));
   startCyberFx({ scramble: SCRAMBLE });
-  // the page's own backdrop (theme-cyber.css on #stage) shows through the render; the grid is lit by the chrome
-  setBackdrop(null, mix(c.bg, c.chrome, 0.4), mix(c.bg, c.chrome, 0.16));
+  // the page's own backdrop (theme-cyber.css on #stage) shows through the render; the grid takes the skin's tokens
+  setBackdrop(null);
   bus.dispatchEvent(new Event('skin'));
   if (flip) bootLog({ short: true });
   else if (!booted()) bootLog({ title: 'ARMENSCAD//OS', host: hostLabel(location.hostname),

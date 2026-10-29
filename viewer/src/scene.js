@@ -1,5 +1,5 @@
-// The three.js scene: renderer, cameras, controls, lights, grid, the part group, framing, poses, picking helpers.
-// OpenSCAD is Z-up, so the cameras' up is +Z and the grid lies in XY.
+// The three.js scene: renderer, cameras, controls, lights, the part group, framing, poses, picking helpers.
+// OpenSCAD is Z-up, so the cameras' up is +Z and the grid (grid.js) lies in XY.
 //
 // Two cameras share one OrbitControls: perspective for looking around, orthographic for tracing and
 // straight-on comparison. `view.camera` is whichever is active; controls.object is swapped with it.
@@ -8,7 +8,6 @@
 // The ortho frustum is not stored: it is ORTHO_HALF (a constant) x the viewport aspect / zoom.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { axisColors } from './tokens.js';
 
 export const canvas = document.querySelector('#c');
 export const stage = canvas.parentElement;
@@ -46,17 +45,10 @@ export const lights = {
 };
 lights.key.position.set(80, -60, 120); lights.fill.position.set(-80, 60, -40);
 scene.add(lights.hemi, lights.key, lights.key.target, lights.fill, lights.fill.target);
-let grid = null;
-// the skin's backdrop (theme.js): a background colour, or null to let the page show through; the grid's two line colours
-export function setBackdrop(bg, center = 0x3a3f4a, lines = 0x262a33) {
-  scene.background = bg == null ? null : new THREE.Color(bg);
-  if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
-  grid = new THREE.GridHelper(200, 20, center, lines); grid.rotation.x = Math.PI / 2; scene.add(grid);
-}
+// the skin's backdrop (theme.js): a background colour, or null to let the page show through. The grid and the
+// axes are grid.js (a shader on the ground plane), coloured by the skin's tokens.
+export function setBackdrop(bg) { scene.background = bg == null ? null : new THREE.Color(bg); }
 setBackdrop(0x14161a);
-const axes = new THREE.AxesHelper(20); scene.add(axes);
-// the axes take the skin's axis colours (theme.js fires 'skin' once the skin is on)
-bus.addEventListener('skin', () => { const [x, y, z] = axisColors(); axes.setColors(x, y, z); });
 
 // the parts live here; bounds()/fit() frame whatever in it is visible
 export const group = new THREE.Group(); scene.add(group);

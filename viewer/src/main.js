@@ -1,7 +1,7 @@
 // Entry point: which model, the pickers (the page with no model, the dialog behind the title), keyboard, and
 // the SSE wiring. The work lives in scene.js (three.js), parts.js (meshes, picking, selection), params.js (the
 // panel), annotate.js (drawing + notes), refs.js (reference images), overlay.js (image as a plane), section.js
-// (clipping plane), shading.js (shadows, edges, headlight), viewcube.js (the cube), rails.js (the two rails,
+// (clipping plane), shading.js (shadows, edges, headlight), grid.js (the ground grid, the print bed), viewcube.js (the cube), rails.js (the two rails,
 // their trays, the tool card), hud.js (foldable panels, slot widths), theme.js (the page skin, text size),
 // api.js (server).
 import { MODEL, getModels, getState, connect, reportView } from './api.js';
@@ -14,6 +14,7 @@ import * as overlay from './overlay.js';
 import { section, toggleSection, sectionKey } from './section.js';
 import { shading } from './shading.js';
 import * as boundsUI from './bounds.js';
+import { setPrinter, toggleGrid } from './grid.js';
 import { installDebug } from './debug.js';
 import { installSkinPicker } from './theme.js';
 import { home } from './viewcube.js';
@@ -99,5 +100,5 @@ loadRefs().then(() => annotate.load());   // notes may reference an overlay imag
 installDebug({
   annotations: () => annotate.doc, setTool: annotate.setTool, tool: annotate.getTool, redraw: annotate.scheduleRedraw,
   selectAnn: annotate.selectAnn, scadPoints: annotate.scadPoints,
-  refs: () => refs, overlay, section, shading, bounds: boundsUI.bounds, box: boundsUI.setBox,
+  refs: () => refs, overlay, section, shading, bounds: boundsUI.bounds, box: boundsUI.setBox, printer: setPrinter, grid: toggleGrid,
 });

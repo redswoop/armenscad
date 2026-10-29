@@ -34,6 +34,12 @@
   --axis-y: var(--live);
   --axis-z: var(--signal);
   --select: var(--live);
+  /* the ground: live-coloured lines with a halo, the bed in the chrome colour, zones in the signal colour */
+  --grid-minor: color-mix(in srgb, var(--live) 26%, transparent);
+  --grid-major: color-mix(in srgb, var(--live) 60%, transparent);
+  --grid-glow: 0.6;
+  --plate: var(--chrome);
+  --plate-zone: var(--signal);
   --gizmo-knob: var(--text);
   --gizmo-plane: var(--text);
   --gizmo-glow: 0.35;
@@ -152,12 +158,19 @@
       radial-gradient(80% 60% at 100% 110%, color-mix(in srgb, var(--live) 5%, transparent), transparent 60%),
       var(--bg);
   }
-  /* ---------- over the render: the tool card, the size readout ---------- */
+  /* the room's edges glow: a chrome light leaking in round the frame, over the render, never catching a tap */
+  & #stage::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+    box-shadow: inset 0 0 90px -30px color-mix(in srgb, var(--chrome) 55%, transparent), inset 0 0 18px -10px color-mix(in srgb, var(--live) 40%, transparent);
+  }
+  /* ---------- over the render: the tool card, the size readout (no scanlines on the stage) ---------- */
   & #card, & #size {
     border-radius: 0; clip-path: var(--chamfer); --cut: 8px;
-    background: var(--crt), color-mix(in srgb, var(--surface) 86%, transparent);
+    background: color-mix(in srgb, var(--surface) 86%, transparent);
     border-color: color-mix(in srgb, var(--chrome) 25%, transparent);
   }
+  & #size-fit { font-family: var(--mono); letter-spacing: 0.06em; color: var(--live); text-shadow: 0 0 6px color-mix(in srgb, var(--live) 45%, transparent); }
+  & #size-fit.bad { color: var(--chrome); text-shadow: 0 0 6px color-mix(in srgb, var(--chrome) 55%, transparent); }
   & #card-name { font: 700 calc(12px * var(--fs)) var(--display); text-transform: uppercase; letter-spacing: 0.16em; color: var(--signal); text-shadow: 0 0 8px color-mix(in srgb, var(--signal) 50%, transparent); }
   & #size-target { font-family: var(--body); }
 

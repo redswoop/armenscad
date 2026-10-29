@@ -5,7 +5,7 @@
 //                  selection's (Box, Hide, Deselect) with one, else Box and Ghost
 //          bottom  modes: Section
 //   right  top     camera: Home, Views (tray), Fit, Camera (perspective / ortho)
-//          middle  Display (tray: shadows, edges, headlight, ghost opacity)
+//          middle  Display (tray: shadows, edges, headlight, ghost opacity, grid, printer bed)
 //          bottom  Settings (tray: skin, text size, keys); Parameters shows / hides the right panels
 // The modules own the state and fire 'ui' on the bus when it changes; sync() redraws every entry from it. The
 // middle group swaps (animated) only when what it offers changes. Also the tool card over the render (top
@@ -20,6 +20,7 @@ import * as annotate from './annotate.js';
 import { toggleSection, sectionUI, flipSection, lookAtCut, replaneSection, untiltSection, section, SECTION_HELP } from './section.js';
 import { st as box, toggleBox } from './bounds.js';
 import { st as shade } from './shading.js';
+import { st as ground } from './grid.js';
 import { home } from './viewcube.js';
 
 const $ = (s) => document.querySelector(s);
@@ -133,7 +134,7 @@ export function sync() {
   const sec = sectionUI();
   left.entry('section').update({ on: sec.on || sec.picking, state: sec.picking ? 'Pick a plane' : sec.on ? `${sec.plane} ${sec.mm} mm` : 'Off' });
   right.entry('ortho').update({ state: isOrtho() ? 'Orthographic' : 'Perspective' });
-  right.entry('display').update({ state: ['Shaded', shade.edges && 'edges', shade.shadows && 'shadows'].filter(Boolean).join(' · ') });
+  right.entry('display').update({ state: ['Shaded', shade.edges && 'edges', shade.shadows && 'shadows', ground.printer?.name].filter(Boolean).join(' · ') });
 
   const [kind, entries] = contextEntries();
   const key = kind + ':' + entries.map((e) => e.id).join(',');
