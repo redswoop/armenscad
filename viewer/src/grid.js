@@ -104,9 +104,14 @@ function tick() {
   u.uOrtho.value = cam.isOrthographicCamera ? 1 : 0;
   // the fade: in perspective, by distance from the camera (the target sits at 1 orbit); in ortho, by distance
   // across the plane from the camera's foot, one visible height out
-  u.uRadius.value = cam.isOrthographicCamera ? 5 * cam.top / cam.zoom : 7 * cam.position.distanceTo(controls.target);
+  // across the plane from the camera's foot, one visible height out. The orbit distance alone is not enough: zoomed
+  // onto a feature 50 mm up, the orbit is 5 mm and the floor would fade to nothing, so the camera's height counts too.
+  u.uRadius.value = cam.isOrthographicCamera ? 5 * cam.top / cam.zoom : 7 * Math.max(cam.position.distanceTo(controls.target), Math.abs(cam.position.z));
   const foot = cam.isOrthographicCamera ? controls.target : cam.position;
   grid.position.set(foot.x, foot.y, 0); grid.scale.set(u.uRadius.value, u.uRadius.value, 1);
+  // the spacing the rail shows: the middle level, the one drawn in full
+  const mid = u.uStep.value * 10, label = mid >= 1000 ? `${mid / 1000} m` : `${+mid.toPrecision(3)} mm`;
+  if (label !== st.spacing) { st.spacing = label; bus.dispatchEvent(new Event('ui')); }
 }
 frameHooks.add(tick);
 
@@ -159,7 +164,7 @@ vol.raycast = () => {}; vol.visible = false; vol.renderOrder = -1;
 scene.add(vol);
 
 const KEY = 'armenscad.printer';
-export const st = { printer: printerById(localStorage.getItem(KEY)) ?? null, fits: null };
+export const st = { printer: printerById(localStorage.getItem(KEY)) ?? null, fits: null, spacing: '' };
 
 function layBed() {
   const p = st.printer;

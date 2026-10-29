@@ -134,7 +134,7 @@ export function sync() {
   const sec = sectionUI();
   left.entry('section').update({ on: sec.on || sec.picking, state: sec.picking ? 'Pick a plane' : sec.on ? `${sec.plane} ${sec.mm} mm` : 'Off' });
   right.entry('ortho').update({ state: isOrtho() ? 'Orthographic' : 'Perspective' });
-  right.entry('display').update({ state: ['Shaded', shade.edges && 'edges', shade.shadows && 'shadows', ground.printer?.name].filter(Boolean).join(' · ') });
+  right.entry('display').update({ state: ['Shaded', shade.edges && 'edges', shade.shadows && 'shadows', ground.printer?.name, ground.spacing && `grid ${ground.spacing}`].filter(Boolean).join(' · ') });
 
   const [kind, entries] = contextEntries();
   const key = kind + ':' + entries.map((e) => e.id).join(',');
