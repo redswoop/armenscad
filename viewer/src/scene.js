@@ -11,7 +11,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 export const canvas = document.querySelector('#c');
 export const stage = canvas.parentElement;
-export const bus = new EventTarget();     // 'camera' after any camera move, 'resize' after the canvas resizes
+export const bus = new EventTarget();     // 'camera' after any camera move, 'resize' after the canvas resizes, 'ratio' after the pixel ratio changes
 
 export const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, alpha: true });   // stencil: section caps (section.js); alpha: a skin's backdrop (theme.js)
 // Pixel ratio: 2 device px per CSS px when the camera is still (on a 1x display that supersamples the frame, so
@@ -20,11 +20,13 @@ export const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stenc
 // to ~43 fps at 2245 px wide; nobody sees aliasing on a moving frame). The loop switches ~0.2 s after the last move.
 // Only a model that is actually slow gets the drop: on a 1x display the grid's hairlines alias at the display's
 // ratio, and a 300 k triangle model orbits at 60 fps supersampled, so the frame time at the still ratio decides
-// (an average over the frames rendered while moving at 2, dropped once it passes SLOW_MS).
-const RATIO_STILL = 2, RATIO_MOVING = Math.min(devicePixelRatio, 2), SLOW_MS = 19;
+// (an average over the frames rendered while moving at 2, dropped once it passes SLOW_MS). Anything drawn as GL
+// hairlines (1 device px) is a different thickness at the two ratios, so it listens to 'ratio' and compensates
+// (shading.js edges), or the switch back on stopping shows as a flash.
+export const RATIO_STILL = 2, RATIO_MOVING = Math.min(devicePixelRatio, 2), SLOW_MS = 19;
 let lastMove = performance.now(), ratio = RATIO_STILL, frameMs = 8, lastFrame = performance.now();
 renderer.setPixelRatio(ratio);
-function setRatio(r) { if (r === ratio) return; ratio = r; renderer.setPixelRatio(r); renderer.setSize(stage.clientWidth, stage.clientHeight, false); }
+function setRatio(r) { if (r === ratio) return; ratio = r; renderer.setPixelRatio(r); renderer.setSize(stage.clientWidth, stage.clientHeight, false); bus.dispatchEvent(new Event('ratio')); }
 function pickRatio() {
   const now = performance.now(), moving = now - lastMove < 200;
   if (moving && ratio === RATIO_STILL) frameMs = frameMs * 0.8 + Math.min(now - lastFrame, 100) * 0.2;

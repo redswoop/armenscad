@@ -8,14 +8,17 @@
 //   headlight the fill light rides with the camera, so whatever faces you is lit even inside the shadow.
 import * as THREE from 'three';
 import { MODEL } from './api.js';
-import { renderer, lights, view, controls, bounds, bus, frameHooks } from './scene.js';
+import { renderer, lights, view, controls, bounds, bus, frameHooks, RATIO_STILL } from './scene.js';
 import { meshes } from './parts.js';
 
 const $ = (s) => document.querySelector(s);
 const KEY = `shading:${MODEL}`;
 export const st = Object.assign({ shadows: true, edges: true, headlight: true }, JSON.parse(localStorage.getItem(KEY) ?? '{}'));
 const EDGE_DEG = 30;
-const EDGE_COLOR = 0x0c0e12;
+const EDGE_COLOR = 0x0c0e12, EDGE_ALPHA = 0.75;
+// GL lines are 1 device px, so when scene.js drops the pixel ratio while the camera moves the creases would double
+// in width (and darkness) and snap back on stopping: the opacity scales with the ratio to keep the same ink per CSS px
+const edgeAlpha = () => EDGE_ALPHA * renderer.getPixelRatio() / RATIO_STILL;
 
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 // The shadow map is rendered only when something that casts or clips has changed, not every frame: the key light
@@ -53,7 +56,7 @@ function edgesFor(mesh) {
   let e = mesh.children.find((c) => c.userData.edges);
   if (e && e.userData.geo === mesh.geometry) return e;
   if (e) { e.geometry.dispose(); mesh.remove(e); }
-  const mat = new THREE.LineBasicMaterial({ color: EDGE_COLOR, transparent: true, opacity: 0.75, clippingPlanes: mesh.material.clippingPlanes });
+  const mat = new THREE.LineBasicMaterial({ color: EDGE_COLOR, transparent: true, opacity: edgeAlpha(), clippingPlanes: mesh.material.clippingPlanes });
   e = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, EDGE_DEG), mat);
   e.userData.edges = true; e.userData.geo = mesh.geometry; e.raycast = () => {};
   mesh.add(e);
@@ -95,4 +98,5 @@ $('#sh-shadows').onchange = (e) => shading({ shadows: e.target.checked });
 $('#sh-edges').onchange = (e) => shading({ edges: e.target.checked });
 $('#sh-headlight').onchange = (e) => shading({ headlight: e.target.checked });
 bus.addEventListener('parts', syncParts);     // new or rebuilt meshes get shadows and fresh edges
+bus.addEventListener('ratio', () => { const a = edgeAlpha(); for (const m of meshes.values()) for (const c of m.children) if (c.userData.edges) c.material.opacity = a; });
 apply();
