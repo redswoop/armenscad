@@ -7,7 +7,7 @@
 #   armenscad install                   put this script on PATH (~/.local/bin) and the lib in OpenSCAD's library folder
 #   armenscad root                      print the workbench folder
 #   armenscad <tool> [args]             any script in tools/: stlinfo, scadset, voxcmp, slice, svgpts, stlshift,
-#                                       stlshells, 3mfinfo, 3mf2stl, shapr_dump, ldraw2stl
+#                                       stlshells, 3mfinfo, 3mf2stl, parts3mf, shapr_dump, ldraw2stl, step2stl
 set -e
 self="${BASH_SOURCE[0]}"; while [ -L "$self" ]; do self="$(readlink "$self")"; done
 root="$(cd "$(dirname "$self")/.." && pwd)"
