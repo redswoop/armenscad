@@ -1,5 +1,5 @@
-// The two rails (CyberDOS shell, @redswoop/cyberdos/web/shell.ts), Shapr3D's way: labelled entries, the
-// state under the label, the shortcut beside it.
+// The two rails (CyberDOS shell, @redswoop/cyberdos/web/shell.ts): bare tiles; hovering one shows its label,
+// the state under it, the shortcut beside it. A group's handle unfolds its labels for good.
 //   left   top     spaces: View, Annotate; Items shows / hides the left panels
 //          middle  what fits now: the section's tools while it is on, the drawing tools in Annotate, the
 //                  selection's (Box, Hide, Deselect) with one, else Box and Ghost
@@ -9,7 +9,7 @@
 //          bottom  Settings (tray: skin, text size, keys); Parameters shows / hides the right panels
 // The modules own the state and fire 'ui' on the bus when it changes; sync() redraws every entry from it. The
 // middle group swaps (animated) only when what it offers changes. Also the tool card over the render (top
-// centre): the active tool and its readout or hint. Folded groups and hidden slots are remembered.
+// centre): the active tool and its readout or hint. Unfolded groups and hidden slots are remembered.
 import { Rail } from '@redswoop/cyberdos/web';
 import { createElement, Rotate3d, PenTool, PanelLeft, PanelRight, MousePointer2, MoveUpRight, Type, Crosshair, Box, Ghost,
          EyeOff, X, SquareSplitVertical, FlipVertical2, Focus, Replace, RotateCcw, Home, View, Maximize, Axis3d, SunMedium,
@@ -28,11 +28,12 @@ const svg = (icon) => createElement(icon).outerHTML;
 const store = (k, v) => { try { v === undefined ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 const recall = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 
-const COMPACT = 'armenscad.compact';
-const compact = new Set(recall(COMPACT, []));
+// labels come out on hover; a group's handle unfolds it to show them all the time (remembered)
+const UNFOLDED = 'armenscad.unfolded';
+const unfolded = new Set(recall(UNFOLDED, []));
 const group = (id, anchor, entries = []) => ({
-  id, anchor, entries, handle: true, compact: compact.has(id),
-  onCompact: (c) => { c ? compact.add(id) : compact.delete(id); store(COMPACT, [...compact]); },
+  id, anchor, entries, handle: true, compact: !unfolded.has(id),
+  onCompact: (c) => { c ? unfolded.delete(id) : unfolded.add(id); store(UNFOLDED, [...unfolded]); },
 });
 
 // a tray shows a node kept in #trays (the modules bind to its inputs by id at load)

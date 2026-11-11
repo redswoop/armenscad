@@ -204,6 +204,9 @@ kbd { font:calc(12px * var(--fs)) var(--mono); color:var(--dim); border:1px soli
 .p-tools { padding:0 8px 8px; margin:0; }
 #gallery { margin-top:2px; }
 
+/* a folded rail label shows the moment the pointer enters its tile (no slide, no fade in); it fades on the way out */
+.cd-toolrail .cd-group[data-compact] .cd-entry:is(:hover, :focus-visible) .cd-entry-label { transition:none; }
+
 /* ---------- tray contents (rails.js moves each into its tray) ---------- */
 .tray-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-bottom:6px; }
 .tray-grid button, .tray-row button { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 8px; }
