@@ -23,7 +23,11 @@ const CELL = 24;                 // CSS px: the finest cells are this big when a
 // ---------- the grid ----------
 const gridMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, side: THREE.DoubleSide,
-  polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2,     // a face lying on Z = 0 wins over the grid
+  // A face lying on Z = 0 wins over the grid. The parts are pushed back too (parts.js: 1, or 3 for a reference
+  // part, so their edge lines sit on top), so the grid goes well behind both: one unit more than a part's was
+  // within the depth error between two different triangulations of the same plane, and the lines flickered over
+  // the face as the camera moved.
+  polygonOffset: true, polygonOffsetFactor: 5, polygonOffsetUnits: 16,
   uniforms: {
     uMinor: { value: new THREE.Vector4(0.15, 0.16, 0.2, 1) }, uMajor: { value: new THREE.Vector4(0.23, 0.25, 0.29, 1) },
     uX: { value: new THREE.Vector4(0.88, 0.32, 0.32, 1) }, uY: { value: new THREE.Vector4(0.32, 0.77, 0.32, 1) },
