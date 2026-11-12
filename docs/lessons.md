@@ -37,6 +37,7 @@ A frame built from "u along this edge, v in, w up" is left-handed half the time.
 - **Settled clearances are functions in `armenscad/fit.scad`** (`fit_pin_clr()` 0.3 on the diameter, `fit_hinge_clr()` 0.15 per side, `fit_fil_clr()` 0.15 per side; Bambu H2C, 0.4 nozzle, PLA Matte, 0.2 layers). Every turning fit landed on 0.15 per side. Call the function and cite it; add one when a coupon settles something new. On another printer, re-settle with the coupon first.
 - **Fairings must overlap the edge they join at full width.** A cone tapering to a point right at an edge is a failure point; so is a thin plate printed on end (strong holes, fragile plate; 45 degrees was the compromise).
 - **Hinge barrels** lift 0.6 mm off the adjacent edge or they fuse; teardrop holes point up in the print pose.
+- **A detent's play subtracts from its engagement** (2026-11-11, devastator shoulder hinge). A spring nub on one side of a pin pushes the parts apart until the pin's play is used up, so the play comes straight off how far the nub reaches into its notch. A teardrop hole whose point faces the push adds ~0.2. A nub sized like the hole clearances (0.45 vs ~0.45) held nothing on one print and self-locked on a tighter one (17 deg flanks). Preload the nub past the worst play so it always seats on its flanks (engagement = notch depth), flanks ~40 deg from radial for a click, and check the finger strain for the larger bend.
 
 ## Getting multi-filament parts into Bambu Studio (2026-10-31, cardgrid dividers)
 
