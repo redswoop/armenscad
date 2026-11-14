@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   validateScene, defaultScene, resolveScene, formatScene, sceneHash, parseField,
-  addInstance, copyInstance, moveInstance, removeInstance, setFields, SceneError,
+  addInstance, copyInstance, moveInstance, removeInstance, setFields, splitInstance, freeId, placementMatrix, SceneError,
   readScene, writeScene, editScene, writeSceneScad, StaleError, sceneScad,
   type Manifest, type Scene,
 } from './index.ts';
@@ -119,6 +119,62 @@ describe('edits', () => {
   });
 });
 
+describe('split', () => {
+  // every placed part's world matrix, by part name, for one resolved scene
+  const where = (s: Scene) => Object.fromEntries(resolveScene(s, manifest).map((p) => [p.part, placementMatrix(p)]));
+  const looks = { at: [12.5, -3, 40], rot: [0, 30, 90], mirror: [1, 0, 0], scale: [1, 2, 0.5], color: '#c8823a', material: 'petg', scratch: true };
+
+  test('from an instance showing every part: the source gets a list of the others, in viewer.json order', () => {
+    const before = scene({ id: 'm', ...looks }, { id: 'n' }) as Scene;
+    const after = splitInstance(before, manifest, 'm', 'lid');
+    expect(after.instances).toEqual([
+      { id: 'm', ...looks, parts: ['box', 'brick'] },
+      { id: 'lid', ...looks, parts: ['lid'] },
+      { id: 'n' },
+    ]);
+    expect(before.instances[0]).toEqual({ id: 'm', ...looks });           // the input is untouched
+    expect(validateScene(after, manifest)).toEqual([]);
+    // the same parts at the same world placements, only under other paths
+    expect(resolveScene(after, manifest).map((p) => p.path)).toEqual(['m.box', 'm.brick', 'lid.lid', 'n.box', 'n.lid', 'n.brick']);
+    const was = resolveScene(before, manifest).filter((p) => p.instance === 'm'), now = resolveScene(after, manifest).filter((p) => p.instance !== 'n');
+    expect(now.length).toBe(was.length);
+    for (const p of was) {
+      const q = now.find((x) => x.part === p.part)!;
+      expect(placementMatrix(q)).toEqual(placementMatrix(p));
+      expect({ ...q, path: '', instance: '' }).toEqual({ ...p, path: '', instance: '' });   // colour, material, scratch too
+    }
+  });
+  test('from an instance with a parts list: that list loses the part, in its own order', () => {
+    const before = scene({ id: 'a', parts: ['lid', 'brick', 'box'], at: [5, 0, 0] }) as Scene;
+    const after = splitInstance(before, manifest, 'a', 'brick', 'held');
+    expect(after.instances).toEqual([{ id: 'a', parts: ['lid', 'box'], at: [5, 0, 0] }, { id: 'held', parts: ['brick'], at: [5, 0, 0] }]);
+    expect(where(after)).toEqual(where(before));
+    expect(validateScene(after, manifest)).toEqual([]);
+  });
+  test('ids: the part name, then name_2, name_3; an id given is used or refused', () => {
+    let s = defaultScene('m');
+    s = splitInstance(s, manifest, 'm', 'lid');
+    s = copyInstance(s, 'm', 'm2', { parts: null });
+    s = splitInstance(s, manifest, 'm2', 'lid');
+    s = copyInstance(s, 'm', 'm3', { parts: null });
+    s = splitInstance(s, manifest, 'm3', 'lid');
+    expect(s.instances.map((x) => x.id)).toEqual(['m', 'm3', 'lid_3', 'm2', 'lid_2', 'lid']);   // a copy goes after its source
+    expect(validateScene(s, manifest)).toEqual([]);
+    expect(freeId(s, 'lid')).toBe('lid_4');
+    expect(freeId(s, 'box')).toBe('box');
+    expect(freeId(s, 'odd name.v2')).toBe('odd_name_v2');
+    expect(() => splitInstance(defaultScene('m'), manifest, 'm', 'box', 'm')).toThrow('there is already an instance "m"');
+  });
+  test('refusals: a one-part instance, a part it does not show, an unknown part or instance', () => {
+    const s = scene({ id: 'a', parts: ['lid'] }, { id: 'b', parts: ['box', 'lid'] }) as Scene;
+    expect(() => splitInstance(s, manifest, 'a', 'lid')).toThrow('a shows only "lid": nothing to split it from');
+    expect(() => splitInstance(s, manifest, 'b', 'brick')).toThrow('b does not show "brick" (it shows box, lid)');
+    expect(() => splitInstance(s, manifest, 'b', 'hinge')).toThrow('no part "hinge" (viewer.json has box, lid, brick)');
+    expect(() => splitInstance(s, manifest, 'c', 'box')).toThrow('no instance "c" (the scene has a, b)');
+    expect(() => splitInstance(s, manifest, 'a', 'lid')).toThrow(SceneError);
+  });
+});
+
 describe('the file', () => {
   test('one instance per line, fields in one order', () => {
     const s = scene({ scratch: true, at: [1, 0, 0], id: 'b', parts: ['box', 'lid'] }, { id: 'a' }) as Scene;
@@ -172,6 +228,14 @@ describe('reading and writing through a host', () => {
     const e = await writeScene(host, '/w/m', scene({ id: 'a.b' }) as Scene, 'none').catch((e) => e);
     expect(e).toBeInstanceOf(SceneError);
     expect(await files.read('/w/m/scene.json')).toBeNull();
+  });
+  test('split through editScene: the file is created from the default scene and validates', async () => {
+    const { host } = setup();
+    await editScene(host, '/w/m', (s) => splitInstance(s, manifest, 'm', 'lid'));
+    const st = await readScene(host, '/w/m');
+    expect(st.errors).toEqual([]);
+    expect(st.scene!.instances).toEqual([{ id: 'm', parts: ['box', 'brick'] }, { id: 'lid', parts: ['lid'] }]);
+    expect(st.parts.map((p) => p.path)).toEqual(['m.box', 'm.brick', 'lid.lid']);
   });
   test('_scene.scad: scratch left out unless asked for', async () => {
     const { host } = setup(formatScene(scene({ id: 'm' }, { id: 't', parts: ['box'], at: [9, 0, 0], scratch: true }) as Scene));

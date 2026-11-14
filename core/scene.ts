@@ -1,11 +1,11 @@
 // scene.json: what a model shows, and where. Pure: validation, the default scene, resolution to placed parts,
-// edits, the file's text and its hash. Reading and writing the file is model.ts.
+// edits and the file's text. No Node imports, so the viewer imports it too (the split it offers is this file's).
+// Reading and writing the file, and its hash, are model.ts.
 //
 // Phase 0 shape (docs/SPEC-components-2026-11-14.md): instances of the model's own component only.
 //   { "version": 1, "instances": [ { "id": "box2", "parts": ["box"], "at": [70, 0, 0], "mirror": [1, 0, 0] } ] }
 // A placement means translate(at) rotate(rot) mirror(mirror) scale(scale) <call>, a move from where the .scad
 // draws the part. A part is addressed instance.part, so ids and part names carry no dots.
-import { createHash } from 'node:crypto';
 import type { Manifest } from './build.ts';
 
 export const SCENE_FILE = 'scene.json';
@@ -51,11 +51,6 @@ export class StaleError extends Error {
 export const FIELDS = ['id', 'use', 'parts', 'at', 'rot', 'scale', 'mirror', 'color', 'material', 'scratch'] as const;
 const ID = /^[A-Za-z0-9_-]+$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
-
-// Content hash of the file's text; 'none' while there is no file. No counter in the file, so nothing churns in git.
-export function sceneHash(text: string | null): string {
-  return text == null ? 'none' : createHash('sha256').update(text).digest('hex').slice(0, 16);
-}
 
 // No scene.json = today: one instance of the model's own component, every part where the .scad draws it.
 // Its id is the model folder's name, so its parts read hinge_box.box.
@@ -186,6 +181,33 @@ export function removeInstance(scene: Scene, id: string): Scene {
 }
 export function setFields(scene: Scene, id: string, fields: Fields): Scene {
   const s = clone(scene); apply(find(s, id), fields); return s;
+}
+
+// A free instance id made from a name: the name itself (characters an id cannot have made _), else name_2, name_3...
+export function freeId(scene: Scene, name: string): string {
+  const base = name.replace(/[^A-Za-z0-9_-]/g, '_') || 'part';
+  const ids = new Set(scene.instances.map((x) => x.id));
+  if (!ids.has(base)) return base;
+  let n = 2; while (ids.has(`${base}_${n}`)) n++;
+  return `${base}_${n}`;
+}
+// Split one part out of an instance into an instance of its own (exploded views, print layouts, one piece set
+// aside): the new one shows only that part, right after the source, with the source's placement and looks, so
+// nothing moves; the source stops showing it (a source showing every part gets a parts list of the others, in
+// viewer.json order). The new id is `to`, else one made from the part's name (lid, lid_2, ...). Refused for a part
+// the instance does not show, and for an instance showing only that part (there is nothing to split it from).
+export function splitInstance(scene: Scene, manifest: Pick<Manifest, 'parts'>, id: string, part: string, to?: string): Scene {
+  const s = clone(scene), src = find(s, id), names = manifest.parts.map((p) => p.name);
+  if (!names.includes(part)) throw new SceneError([`no part "${part}" (viewer.json has ${names.join(', ')})`]);
+  const shown = src.parts ?? names;
+  if (!shown.includes(part)) throw new SceneError([`${id} does not show "${part}" (it shows ${shown.join(', ')})`]);
+  if (shown.length < 2) throw new SceneError([`${id} shows only "${part}": nothing to split it from (move ${id} itself)`]);
+  to ??= freeId(s, part);
+  taken(s, to);
+  const inst: Instance = { ...structuredClone(src), id: to, parts: [part] };
+  src.parts = shown.filter((p) => p !== part);
+  s.instances.splice(s.instances.indexOf(src) + 1, 0, inst);
+  return s;
 }
 
 // A field typed on the command line: at=1,2,3 (or [1, 2, 3]), scale=2, parts=box,lid, scratch=true;

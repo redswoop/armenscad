@@ -1,13 +1,20 @@
 // A model folder's scene: read, resolve, write (the only writer of scene.json), and _scene.scad.
 // The CLI and the viewer's server both come through here, so they cannot disagree about what a scene is.
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { type Host, readText } from './io.ts';
 import { loadManifest, type Manifest } from './build.ts';
 import { sceneScad } from './scad.ts';
 import {
-  SCENE_FILE, SCENE_SCAD, SceneError, StaleError, defaultScene, formatScene, resolveScene, sceneHash, validateScene,
+  SCENE_FILE, SCENE_SCAD, SceneError, StaleError, defaultScene, formatScene, resolveScene, validateScene,
   type Placed, type Scene,
 } from './scene.ts';
+
+// Content hash of the file's text; 'none' while there is no file. No counter in the file, so nothing churns in git.
+// (Here, not in scene.ts, which the viewer imports and which so stays free of Node modules.)
+export function sceneHash(text: string | null): string {
+  return text == null ? 'none' : createHash('sha256').update(text).digest('hex').slice(0, 16);
+}
 
 export interface SceneState {
   hash: string;            // of scene.json's text, 'none' when there is no file; a write names it as its base
