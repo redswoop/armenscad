@@ -150,3 +150,16 @@ Armen wants CyberDOS to be his toolkit for all his apps and the viewer at parity
 - Viewer, from Shapr3D not yet copied: "Section only" (show just the cut faces) and a 2D section mode (ortho with background edges). A selected part hidden behind others only shows in the list (an x-ray was tried and dropped: it also showed the part's own hidden insides).
 
 - Is the next part the fans and spin box, or something unrelated? Decides what tests the template first.
+
+## Backlog (Armen, 2026-11-14, after a few weeks of daily use: "pretty damn good")
+
+Small:
+- The left Parts list grows until Notes and References are squeezed. Cap it (it scrolls) so the others keep a few rows; the one Items panel above is the longer fix.
+- Selection vs the annotation tools' modes "is a bit annoying". Design together later; nothing decided.
+
+Major, in build order (each rests on the one before):
+1. Moving parts by hand in the view, and (2) combined projects: planned 2026-11-14 in `docs/SPEC-components-2026-11-14.md` (components with exported values, instances in `scene.json`, saved on every change with undo; the `.scad` is never rewritten).
+2. Combined projects (same spec): a manifest whose items are other models (e.g. `devastator/hip`, `devastator/knee`), placed by transforms, reusing each one's built STLs (no whole-toy rebuild), drill down to a sub-model. Replaces hand-made scenes like `devastator/legs/`.
+3. Movable joints: `docs/TODO-kinematics-2026-10-26.md`; decided 2026-11-14: attach points in each scad, joints joined in the combined project's manifest.
+4. Named poses of those joints (joint values + camera, `poses.json`).
+Independent: a sketch tool beyond the annotations, both kinds: a freehand whiteboard first (concept doodles, read as an image), a dimensioned 2D sketch on a plane later (lines, arcs, circles, typed mm, saved in mm for `polygon()`).

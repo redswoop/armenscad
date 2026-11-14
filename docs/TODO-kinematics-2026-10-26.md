@@ -169,3 +169,12 @@ Browser side: two libraries to use.
   three-mesh-bvh) is damped least squares over arbitrary DOF combinations, URDF-aware, and handles closed loops.
   Decision: write our own CCD for phase 2 (a tree of named joints with per-DOF limits is ~150 lines and we own the
   snapping and detent behaviour); keep closed-chain-ik-js in reserve if closed loops ever come back on the table.
+
+## Decided 2026-11-14: attach points in the scad, joints in the combined project
+
+Armen's devastator joints (hip swing and splay, knee, shoulder, ankle) sit between separate assembly folders, so
+they cannot all be declared in one `.scad`. Chosen (Fusion-style, which resolves the "joint origin frame" question
+above): each `.scad` names its attach points (origin + axis), computed from its own parameters and echoed like
+`kin_dump`, so no number is copied by hand; an assembly's `scene.json` joins two attach points with a type,
+range and step count. `kin.scad` stays useful for joints inside one assembly. Goes with the combined-projects
+feature: `docs/SPEC-components-2026-11-14.md`, phase 4.
