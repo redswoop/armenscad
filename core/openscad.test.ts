@@ -39,6 +39,7 @@ test.skipIf(!have)('hinge_box: parts build through the core, _scene.scad renders
   const dir = path.join(await mkdtemp(path.join(tmpdir(), 'armenscad-')), 'hinge_box');
   try {
     await cp(example, dir, { recursive: true });
+    await rm(path.join(dir, 'scene.json'), { force: true });   // a scene left in the example by hand is not this test's
     const host = bunHost();
 
     const built = await buildParts(host, await loadModel(host, dir), path.join(dir, '.cache'));
@@ -69,6 +70,7 @@ test.skipIf(!have)('placementMatrix agrees with OpenSCAD: moved, rotated about a
   const dir = path.join(await mkdtemp(path.join(tmpdir(), 'armenscad-')), 'hinge_box');
   try {
     await cp(example, dir, { recursive: true });
+    await rm(path.join(dir, 'scene.json'), { force: true });   // a scene left in the example by hand is not this test's
     const host = bunHost();
     const built = await buildParts(host, await loadModel(host, dir), path.join(dir, '.cache'));
     const parts = Object.fromEntries(await Promise.all(['box', 'lid'].map(async (n) => [n, await vertices(built.stl(n)!)])));
