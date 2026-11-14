@@ -93,7 +93,8 @@ def where(a):
     if a.get('kind') == 'points':
         return f"{len(a.get('xyz', []))} pts {a.get('plane') or 'xyz'}"
     h = next((h for h in a.get('hits', []) if h.get('part')), None)
-    return f"{h['part']}@({', '.join(f'{v:g}' for v in h['xyz'])})" if h else 'no part'
+    # local: the point where the .scad draws the part (the viewer adds it, with the instance, for placed copies)
+    return f"{h['part']}@({', '.join(f'{v:g}' for v in h.get('local') or h['xyz'])})" if h else 'no part'
 
 
 def cmd_list(args):

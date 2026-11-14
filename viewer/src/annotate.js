@@ -7,10 +7,12 @@
 //
 // Every stroke records the camera pose, the canvas size, its points as [u, v] in 0..1 (v down), and `hits`: the
 // ray-cast of sampled points onto the parts (part name + world mm). Strokes are screen-space and go stale when the
-// geometry changes; the hits are the durable anchor and are what Claude acts on.
+// geometry changes; the hits are the durable anchor and are what Claude acts on. A hit also names the instance it
+// landed on and the point in that instance's own frame (`local`, where the .scad draws the part), so a note
+// follows a moved instance; a hit without an instance (older notes, tools/notes add) stays at its world xyz.
 import * as THREE from 'three';
 import { stage, canvas, bus, getPose, setPose, poseDiff, toScreen, project, canvasSize, bounds, uvToNDC } from './scene.js';
-import { pickPart, hiddenParts } from './parts.js';
+import { pickPart, hiddenParts, instanceMatrix, multiInstance } from './parts.js';
 import { getAnnotations, postAnnotation, patchAnnotation, deleteAnnotation } from './api.js';
 
 const $ = (s) => document.querySelector(s);
@@ -118,7 +120,7 @@ registerTool('points', {
   hint: 'click points on the overlay or a part · Backspace undoes · Enter saves',
   up: (c) => {
     const src = pointSource?.(c.ndc);
-    const hit = src ?? (() => { const h = pickPart(c.ndc); return h ? { point: h.point, plane: null, overlay: null, part: h.name } : null; })();
+    const hit = src ?? (() => { const h = pickPart(c.ndc); return h ? { point: h.point, plane: null, overlay: null, part: h.label } : null; })();
     if (!hit) return;
     cur ??= { kind: 'points', xyz: [], plane: hit.plane, overlay: hit.overlay, closed: false };
     cur.xyz.push([r2(hit.point.x), r2(hit.point.y), r2(hit.point.z)]);
@@ -139,7 +141,7 @@ function sampleHits(pts) {
   for (let i = 0; i < pts.length; i++) {
     if (i !== 0 && i !== pts.length - 1 && i % N !== 0) continue;
     const h = pickPart(uvToNDC(pts[i][0], pts[i][1]));
-    out.push({ i, part: h?.name ?? null, xyz: h ? [r2(h.point.x), r2(h.point.y), r2(h.point.z)] : null });
+    out.push({ i, part: h?.part ?? null, ...(h ? { instance: h.instance, local: h.local.toArray().map(r2) } : {}), xyz: h ? [r2(h.point.x), r2(h.point.y), r2(h.point.z)] : null });
   }
   return out;
 }
@@ -182,7 +184,8 @@ function renderList() {
   for (const a of items) {
     const li = document.createElement('li');
     li.className = `${a.status === 'done' ? 'done ' : ''}${a.id === selectedId ? 'selected ' : ''}${a.by === 'claude' ? 'claude ' : ''}${!anchored(a) && !poseClose(a.camera, pose, diag) ? 'ghost' : ''}`;
-    const where = a.kind === 'points' ? `${a.xyz.length} pts${a.plane ? ' ' + a.plane : ''}` : (a.hits?.find((h) => h.part) ? `on ${a.hits.find((h) => h.part).part}` : 'not on a part');
+    const on = a.hits?.find((h) => h.part);
+    const where = a.kind === 'points' ? `${a.xyz.length} pts${a.plane ? ' ' + a.plane : ''}` : (on ? `on ${on.instance && multiInstance() ? `${on.instance}.` : ''}${on.part}` : 'not on a part');
     li.innerHTML = `<div class="a-row"><input type="checkbox" class="done" ${a.status === 'done' ? 'checked' : ''} title="done">` +
       `<span class="k">${glyph[a.kind] ?? '?'} ${a.id}</span><span class="w muted">${where}</span>` +
       `<button class="small go" title="look at it">go</button><button class="small rm" title="delete">×</button></div>` +
@@ -216,6 +219,17 @@ let raf = 0;
 export function scheduleRedraw() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; redraw(); }); }
 bus.addEventListener('camera', scheduleRedraw);
 bus.addEventListener('resize', scheduleRedraw);
+bus.addEventListener('parts', scheduleRedraw);       // an instance moved: its notes go with it
+bus.addEventListener('parts', () => { if (!$('#annots').contains(document.activeElement)) renderList(); });   // "on knee_L.thigh" follows the scene
+bus.addEventListener('placed', scheduleRedraw);
+
+// where a hit is now: its local point through its instance's placement, or the world xyz it was drawn at
+function hitPoint(h) {
+  const m = h.instance && h.local ? instanceMatrix(h.instance) : null;
+  return m ? new THREE.Vector3(...h.local).applyMatrix4(m) : new THREE.Vector3(...h.xyz);
+}
+// has an instance under the note moved since it was drawn (then the stroke as drawn on screen is off the part)
+const moved = (a) => a.hits?.some((h) => h.xyz && h.instance && h.local && hitPoint(h).distanceTo(new THREE.Vector3(...h.xyz)) > 0.1);   // both rounded to 0.01 mm
 
 function poseClose(a, b, diag) {
   if (!a || !b) return false;
@@ -240,14 +254,14 @@ function redraw() {
   for (const a of doc.annotations) {
     if (a.status === 'done' && !showDone) continue;
     const g = svg('g', { class: `ann ${a.kind} ${a.id === selectedId ? 'sel' : ''} ${a.status === 'done' ? 'done' : ''}`, 'data-id': a.id });
-    const close = poseClose(a.camera, pose, diag);
+    const close = poseClose(a.camera, pose, diag) && !moved(a);
     let pts;                                              // screen points in px, or null when it cannot be shown
     if (a.kind === 'points') {
       pts = a.xyz.map((p) => project(new THREE.Vector3(...p))).map((s) => (s.inFront ? [s.u * W, s.v * H] : null));
     } else if (close) {
       pts = a.pts.map(px);
     } else if (anchored(a)) {
-      pts = a.hits.filter((h) => h.xyz).map((h) => project(new THREE.Vector3(...h.xyz))).map((s) => (s.inFront ? [s.u * W, s.v * H] : null)).filter(Boolean);
+      pts = a.hits.filter((h) => h.xyz).map((h) => project(hitPoint(h))).map((s) => (s.inFront ? [s.u * W, s.v * H] : null)).filter(Boolean);
       if (a.kind === 'arrow' && a.hits[0]?.xyz == null && a.hits[1]?.xyz) {   // tail was in space: keep its screen offset from the head
         const head = pts[0], off = [(a.pts[0][0] - a.pts[1][0]) * W, (a.pts[0][1] - a.pts[1][1]) * H];
         pts = [[head[0] + off[0], head[1] + off[1]], head];
