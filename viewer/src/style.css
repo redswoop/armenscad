@@ -178,6 +178,8 @@ kbd { font:calc(12px * var(--fs)) var(--mono); color:var(--dim); border:1px soli
 #size { position:absolute; bottom:0; left:0; display:flex; align-items:center; gap:12px; padding:5px 12px; background:color-mix(in srgb, var(--panel) 90%, transparent); border:1px solid var(--line); border-radius:10px; backdrop-filter:blur(10px); font:calc(12px * var(--fs)) var(--mono); white-space:nowrap; max-width:100%; overflow:hidden; }
 #size-target { color:var(--dim); font-family:-apple-system, system-ui, sans-serif; overflow:hidden; text-overflow:ellipsis; }
 #size-rows { display:flex; gap:12px; }
+#size-stats { color:var(--dim); }
+#size-stats:empty { display:none; }
 #size-fit { color:var(--done); }
 #size-fit.bad { color:var(--bad); }
 .size-row { display:flex; gap:6px; align-items:baseline; }

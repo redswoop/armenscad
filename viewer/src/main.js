@@ -7,7 +7,7 @@
 import { MODEL, getModels, getState, connect, reportView } from './api.js';
 import { app } from './app.js';
 import { fit, fitView, setOrtho, isOrtho, setPose, getPose, controls, orbitTo } from './scene.js';
-import { refresh, toggleGhost, hiddenParts, setHidden, getSelection, clearSelect } from './parts.js';
+import { refresh, toggleGhost, hiddenParts, setHidden, getSelection, clearSelect, toggleCode } from './parts.js';
 import * as annotate from './annotate.js';
 import { loadRefs, refs } from './refs.js';
 import * as overlay from './overlay.js';
@@ -72,6 +72,7 @@ addEventListener('keydown', (e) => {
   if (e.key === 'o') setOrtho(!isOrtho());
   if (e.key === 's') toggleSection();
   if (e.key === 'b') boundsUI.toggleBox();
+  if (e.key === 'c' && !e.metaKey && !e.ctrlKey) toggleCode();
   if (e.key === 'n') toggleAnnotate();
 });
 

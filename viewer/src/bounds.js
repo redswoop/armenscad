@@ -1,5 +1,5 @@
 // Size: the axis-aligned bounding box of what is current — the selected part, the selected group, or every
-// visible part — as a readout at the foot of the render and, when Box (on the left rail) is on, as a wire box in the scene with the three
+// visible part — as a readout at the foot of the render (with its triangle count and build time) and, when Box (on the left rail) is on, as a wire box in the scene with the three
 // edge lengths labelled. The labels sit on the edges that meet at the box corner nearest the camera, so
 // they stay in front. Recomputed after every rebuild, hide/show and selection change; re-projected on every
 // camera move. `b` toggles the box; remembered per model.
@@ -43,6 +43,10 @@ export function update() {
   st.empty = st.box.isEmpty(); st.target = t.name;
   const size = st.empty ? [0, 0, 0] : st.box.getSize(new THREE.Vector3()).toArray();
   $('#size-target').textContent = t.name;
+  const parts = t.list.map((m) => m.userData.part).filter(Boolean);
+  const tris = parts.reduce((n, p) => n + (p.tris ?? 0), 0), ms = parts.reduce((n, p) => n + (p.ms ?? 0), 0);
+  $('#size-stats').textContent = parts.length ? `${tris.toLocaleString()} △ · ${ms.toLocaleString()} ms` : '';
+  $('#size-stats').title = `${tris.toLocaleString()} triangles, built in ${ms.toLocaleString()} ms`;
   $('#size-rows').innerHTML = AXES.map((a, i) => `<div class="size-row" style="color:${COLORS[i]}"><span class="ax">${a}</span><b>${st.empty ? '–' : fmt(size[i])}</b><span class="muted">${st.empty ? '' : `${fmt(st.box.min.getComponent(i))} … ${fmt(st.box.max.getComponent(i))}`}</span></div>`).join('');
   helper.visible = st.on && !st.empty;
   place();

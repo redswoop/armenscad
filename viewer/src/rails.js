@@ -2,7 +2,7 @@
 // the state under it, the shortcut beside it. A group's handle unfolds its labels for good.
 //   left   top     spaces: View, Annotate; Items shows / hides the left panels
 //          middle  what fits now: the section's tools while it is on, the drawing tools in Annotate, the
-//                  selection's (Box, Hide, Deselect) with one, else Box and Ghost
+//                  selection's (Box, Code for a part, Hide, Deselect) with one, else Box and Ghost
 //          bottom  modes: Section
 //   right  top     camera: Home, Views (tray), Fit, Camera (perspective / ortho)
 //          middle  Display (tray: shadows, edges, headlight, ghost opacity, grid, printer bed)
@@ -12,10 +12,10 @@
 // centre): the active tool and its readout or hint. Unfolded groups and hidden slots are remembered.
 import { Rail } from '@redswoop/cyberdos/web';
 import { createElement, Rotate3d, PenTool, PanelLeft, PanelRight, MousePointer2, MoveUpRight, Type, Crosshair, Box, Ghost,
-         EyeOff, X, SquareSplitVertical, FlipVertical2, Focus, Replace, RotateCcw, Home, View, Maximize, Axis3d, SunMedium,
+         EyeOff, X, Code, SquareSplitVertical, FlipVertical2, Focus, Replace, RotateCcw, Home, View, Maximize, Axis3d, SunMedium,
          Settings2 } from 'lucide';
 import { bus, fit, setOrtho, isOrtho } from './scene.js';
-import { getSelection, hideSelection, clearSelect, toggleGhost, ghostState } from './parts.js';
+import { getSelection, hideSelection, clearSelect, toggleGhost, ghostState, toggleCode, codeState } from './parts.js';
 import * as annotate from './annotate.js';
 import { toggleSection, sectionUI, flipSection, lookAtCut, replaneSection, untiltSection, section, SECTION_HELP } from './section.js';
 import { st as box, toggleBox } from './bounds.js';
@@ -113,6 +113,7 @@ function contextEntries() {
   const { part, group: g } = getSelection();
   if (part || g) return ['part', [
     boxEntry,
+    ...(part ? [{ id: 'code', label: 'Code', icon: svg(Code), keys: ['C'], on: codeState().on, state: onOff(codeState().on), title: 'the selected part\'s modules', onSelect: () => toggleCode() }] : []),
     { id: 'hide', label: g ? 'Hide group' : 'Hide', icon: svg(EyeOff), onSelect: hideSelection },
     { id: 'deselect', label: 'Deselect', icon: svg(X), keys: ['esc'], onSelect: clearSelect },
   ]];

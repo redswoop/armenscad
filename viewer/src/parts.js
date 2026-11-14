@@ -1,4 +1,6 @@
 // Parts: loading the STLs the server built, the part list, hover/click picking, selection and the source panel.
+// The list shows names and state only (failed, empty); triangle counts and build times are in the readout at the
+// foot of the render (bounds.js), for whatever is selected.
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -77,11 +79,9 @@ const folded = new Set(JSON.parse(localStorage.getItem(`folded:${MODEL}`) ?? '[]
 let selectedGroup = null;
 function renderPartList() {
   const ul = $('#parts'); ul.innerHTML = '';
-  let total = 0;
   const groups = new Map();                         // group name -> [parts], in first-seen order
   const order = [];                                 // top-level rows: a part or a group name
   for (const p of app.state.parts) {
-    total += p.tris;
     if (!p.group) { order.push(p); continue; }
     if (!groups.has(p.group)) { groups.set(p.group, []); order.push(p.group); }
     groups.get(p.group).push(p);
@@ -89,7 +89,7 @@ function renderPartList() {
   const partRow = (p, inGroup) => {
     const li = document.createElement('li');
     li.className = (p.ok || p.empty ? '' : 'bad ') + (p.empty ? 'empty ' : '') + (app.selected === p.name ? 'selected ' : '') + (inGroup ? 'member ' : '') + (hidden.has(p.name) ? 'off' : '');
-    li.innerHTML = `<span class="sw" style="background:${p.color}"></span><span class="n">${p.name}</span><span class="t">${p.ok ? `${p.tris}△ ${p.ms}ms` : p.empty ? 'empty' : 'failed'}</span>${eye(!hidden.has(p.name), hidden.has(p.name) ? 'show' : 'hide')}`;
+    li.innerHTML = `<span class="sw" style="background:${p.color}"></span><span class="n">${p.name}</span>${p.ok ? '' : `<span class="t">${p.empty ? 'empty' : 'failed'}</span>`}${eye(!hidden.has(p.name), hidden.has(p.name) ? 'show' : 'hide')}`;
     li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); toggle(p.name); renderPartList(); };
     li.onclick = () => select(p.name);
     return li;
@@ -98,10 +98,10 @@ function renderPartList() {
     if (typeof row !== 'string') { ul.appendChild(partRow(row, false)); continue; }
     const name = row, members = groups.get(name);
     const shown = members.filter((p) => !hidden.has(p.name)).length;
-    const tris = members.reduce((n, p) => n + p.tris, 0), bad = members.filter((p) => !p.ok && !p.empty).length;
+    const bad = members.filter((p) => !p.ok && !p.empty).length;
     const li = document.createElement('li');
     li.className = 'group ' + (bad ? 'bad ' : '') + (selectedGroup === name ? 'selected ' : '') + (folded.has(name) ? 'folded ' : '') + (shown === 0 ? 'off' : shown < members.length ? 'some' : '');
-    li.innerHTML = `<span class="fold" title="fold / unfold">${CHEVRON}</span><span class="n">${name}</span><span class="t">${bad ? `${bad} failed` : `${members.length} parts ${tris}△`}</span>${eye(shown > 0, 'show / hide the whole group')}`;
+    li.innerHTML = `<span class="fold" title="fold / unfold">${CHEVRON}</span><span class="n">${name}</span>${bad ? `<span class="t">${bad} failed</span>` : ''}${eye(shown > 0, 'show / hide the whole group')}`;
     li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); setGroupHidden(name, shown === members.length); renderPartList(); };
     li.querySelector('.fold').onclick = (e) => {
       e.stopPropagation();
@@ -113,7 +113,6 @@ function renderPartList() {
     ul.appendChild(li);
     if (!folded.has(name)) for (const p of members) ul.appendChild(partRow(p, true));
   }
-  $('#tri-total').textContent = `${total.toLocaleString()} triangles`;
 }
 function toggle(name) {
   hidden.has(name) ? hidden.delete(name) : hidden.add(name);
@@ -159,14 +158,33 @@ export async function select(name) {
   paint(); renderPartList();
   bus.dispatchEvent(new Event('select'));
   const p = app.state.parts.find((x) => x.name === name);
+  source = null; showCode();
   if (!p?.module) return;
   const mods = await getSource(p.module);
+  if (app.selected !== name) return;            // another pick while this one loaded
+  source = { part: p, mods };
   focusParams(mods.map((m) => m.code).join('\n'));
+  showCode();
+}
+// The source panel: the selected part's modules. It opens only when asked (Code on the rail, c), then follows
+// the selection; with nothing selected, or a group, there is no panel. On or off is remembered.
+const CODE = 'armenscad.code';
+let codeOn = localStorage.getItem(CODE) === '1', source = null;     // source: { part, mods } of the selected part
+export const codeState = () => ({ on: codeOn });
+export function toggleCode(on = !codeOn) {
+  codeOn = on; localStorage.setItem(CODE, on ? '1' : '0');
+  showCode();
+  bus.dispatchEvent(new Event('ui'));
+}
+function showCode() {
+  const show = codeOn && !!source;
+  $('#code').hidden = !show;
+  if (!show) return;
+  const { part: p, mods } = source;
   $('#code-title').textContent = `${p.call}   →   ${app.state.file}:${mods[0]?.line ?? '?'}   (${mods.length} module${mods.length === 1 ? '' : 's'})`;
   $('#code-body').innerHTML = mods.map((m) => `<div class="mod-head">${m.name}()  <span class="muted">line ${m.line}</span></div>` + highlight(m.code)).join('\n');
-  $('#code').hidden = false;
 }
-// a group: highlight every member, no source panel (each member's own row still opens its module)
+// a group: highlight every member, no source panel
 export function selectGroup(g) {
   clearSelect();
   selectedGroup = g;
@@ -174,11 +192,11 @@ export function selectGroup(g) {
   bus.dispatchEvent(new Event('select'));
 }
 export function clearSelect() {
-  $('#code').hidden = true; app.selected = null; selectedGroup = null;
+  source = null; showCode(); app.selected = null; selectedGroup = null;
   paint(); renderPartList(); focusParams(null);
   bus.dispatchEvent(new Event('select'));
 }
-$('#code-close').onclick = clearSelect;
+$('#code-close').onclick = () => toggleCode(false);
 function highlight(code) {
   const esc = code.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   return esc
