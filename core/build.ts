@@ -1,0 +1,105 @@
+// Building a model's parts: read viewer.json and the .scad, render one harness per part, cache the STLs.
+// The cache is keyed by content: the harness text (file path, defines and overrides, the call) plus the content
+// of every file the .scad pulls in, plus the OpenSCAD binary. Two identical builds share one STL; an instance's
+// override set (phase 1) will just be more assignments in its harness, so it keys the same way.
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { type Host, readText } from './io.ts';
+import { harness } from './scad.ts';
+import { parseParams, dependencies, type Param } from './source.ts';
+
+// viewer.json: the .scad file, its defines, its parts (module calls)
+export interface ManifestPart { name: string; call: string; color?: string; group?: string | null; reference?: boolean }
+export interface Manifest { file: string; defines?: Record<string, unknown>; parts: ManifestPart[]; reference?: string }
+
+export interface LoadedModel {
+  dir: string;
+  manifest: Manifest;
+  scadPath: string;
+  source: string;
+  params: Param[];
+}
+
+export async function loadManifest(host: Host, dir: string): Promise<Manifest> {
+  const text = await readText(host.files, path.join(dir, 'viewer.json'));
+  if (text == null) throw new Error(`no viewer.json in ${dir}`);
+  return JSON.parse(text);
+}
+
+export async function loadModel(host: Host, dir: string): Promise<LoadedModel> {
+  const manifest = await loadManifest(host, dir);
+  const scadPath = path.join(dir, manifest.file);
+  const source = await readText(host.files, scadPath);
+  if (source == null) throw Object.assign(new Error(`ENOENT: no such file or directory, open '${scadPath}'`), { code: 'ENOENT' });
+  // switches the viewer drives itself are not user parameters
+  const params = parseParams(source).filter((p) => !(p.name in (manifest.defines ?? {})));
+  return { dir, manifest, scadPath, source, params };
+}
+
+// What the viewer's state.parts holds for one part (unchanged from before the core).
+export interface BuiltPart {
+  name: string; call: string; color: string; group: string | null; reference: boolean; module: string | null;
+  ok: boolean; empty: boolean; tris: number; ms: number; log: string; version: number;
+}
+interface CacheEntry { code: number; output: string; tris: number }
+
+const sha = (...parts: (string | Uint8Array)[]) => { const h = createHash('sha256'); for (const p of parts) h.update(p); return h.digest('hex'); };
+
+export async function sourceDigest(host: Host, scadPath: string): Promise<string> {
+  const deps = await dependencies(host.files, scadPath, host.libPath);
+  const h = createHash('sha256');
+  for (const d of deps) { h.update(d.path + '\0'); h.update(d.data ?? '\u0001missing'); h.update('\0'); }
+  return h.digest('hex');
+}
+export const cacheKey = (builder: string, digest: string, harnessText: string) => sha(builder, '\0', digest, '\0', harnessText).slice(0, 24);
+
+// OpenSCAD's lines worth showing: errors, warnings, deprecations.
+export const buildLog = (output: string) =>
+  output.split('\n').filter((l) => /error|warning|deprecated/i.test(l) && !/NoError/.test(l)).join('\n');
+
+// Build every part of the model into cacheDir (<key>.scad, <key>.stl, <key>.json for the result), reusing any
+// earlier build with the same key unless fresh. A failed build is not cached, so the next build tries again.
+// Afterwards the folder keeps only this build's keys and the previous build's (keep), so a reset to the last
+// values is instant and the cache cannot grow without bound.
+export interface BuildOptions { overrides?: Record<string, unknown>; keep?: Set<string>; fresh?: boolean }
+export async function buildParts(host: Host, m: LoadedModel, cacheDir: string, { overrides = {}, keep = new Set(), fresh = false }: BuildOptions = {}) {
+  const { files, builder } = host;
+  const defines = { ...(m.manifest.defines ?? {}), ...overrides };
+  const digest = await sourceDigest(host, m.scadPath);
+  const running = new Map<string, Promise<CacheEntry>>();     // two parts with the same harness build once
+  const render = async (key: string, text: string): Promise<CacheEntry> => {
+    const meta = path.join(cacheDir, `${key}.json`), out = path.join(cacheDir, `${key}.stl`);
+    const hit = fresh ? null : await readText(files, meta);
+    if (hit) {
+      const e: CacheEntry = JSON.parse(hit);
+      if (e.tris === 0 || (await files.size(out)) === 84 + 50 * e.tris) return e;
+    }
+    const hp = path.join(cacheDir, `${key}.scad`);
+    await files.write(hp, text);
+    await files.remove(out);                          // OpenSCAD writes nothing for an empty result: no stale file
+    const { code, output } = await builder.render(hp, out);
+    const size = await files.size(out);
+    const e = { code, output, tris: size == null ? 0 : Math.max(0, (size - 84) / 50) };
+    if (code === 0) await files.write(meta, JSON.stringify(e));
+    return e;
+  };
+  const keys = new Map<string, string>();             // part name -> key, to serve parts/<name>.stl
+  const parts: BuiltPart[] = await Promise.all(m.manifest.parts.map(async (p) => {
+    const text = harness(m.scadPath, defines, p.call);
+    const key = cacheKey(builder.id, digest, text);
+    keys.set(p.name, key);
+    const t = performance.now();
+    if (!running.has(key)) running.set(key, render(key, text));
+    const e = await running.get(key)!;
+    const mod = p.call.match(/^\s*(\w+)\s*\(/);
+    return { name: p.name, call: p.call, color: p.color ?? '#999999', group: p.group ?? null, reference: !!p.reference, module: mod?.[1] ?? null,
+             ok: e.code === 0 && e.tris > 0, empty: /top level object is empty/i.test(e.output), tris: e.tris, ms: Math.round(performance.now() - t),
+             log: buildLog(e.output), version: Date.now() };   // empty: built fine but produced nothing (a part that is off in this configuration)
+  }));
+  const used = new Set([...keys.values()]);
+  for (const f of await files.list(cacheDir)) {
+    const stem = f.replace(/\.(scad|stl|json)$/, '');
+    if (!used.has(stem) && !keep.has(stem)) await files.remove(path.join(cacheDir, f));
+  }
+  return { parts, keys, stl: (name: string) => (keys.has(name) ? path.join(cacheDir, `${keys.get(name)}.stl`) : null) };
+}

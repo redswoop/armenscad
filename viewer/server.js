@@ -5,22 +5,21 @@
 // the model name is the relative path ("toy/name").
 // Each model gets its own state, file watcher, render cache and SSE clients,
 // created lazily on first request. Routes are /api/models and /api/<model>/....
+// What a model is (building, the cache) lives in the core (../core); this file is HTTP, SSE and watching.
 import { watch } from 'node:fs';
-import { readFile, writeFile, mkdir, stat, readdir, access, rename } from 'node:fs/promises';
+import { readFile, writeFile, stat, readdir, access, rename } from 'node:fs/promises';
 import path from 'node:path';
+import { compactJson, moduleSources, loadModel, buildParts } from '../core/index.ts';
+import { bunHost, checkOpenscad } from '../core/bun.ts';
 
 const PORT = parseInt(process.env.PORT ?? '3003', 10);
 const HOST = process.env.HOST ?? '127.0.0.1';   // the API is unauthenticated: HOST=0.0.0.0 to reach it from the LAN
-const OPENSCAD = process.env.OPENSCAD ?? Bun.which('openscad') ?? '/opt/homebrew/bin/openscad';
 const ROOT = path.resolve(process.env.SCAD_ROOT ?? path.join(import.meta.dir, '..'));
 const MAX_DEPTH = 3;
 const CACHE = path.join(import.meta.dir, '.cache');
-// use <armenscad/...> resolves against the workbench's lib/ wherever the workspace is
-const LIB = path.join(import.meta.dir, '..', 'lib');
-const OPENSCAD_ENV = { ...process.env, OPENSCADPATH: process.env.OPENSCADPATH ? `${LIB}:${process.env.OPENSCADPATH}` : LIB };
+const host = bunHost();
 const SKIP = new Set(['template', 'viewer', 'lib', 'tools', 'node_modules', 'stl', 'renders', 'ref']);
 
-const fmt = (v) => (typeof v === 'string' ? v : JSON.stringify(v));
 const exists = (p) => access(p).then(() => true, () => false);
 
 // ---- models ----------------------------------------------------------
@@ -29,20 +28,6 @@ const models = new Map();   // name -> Model
 const MODEL_RE = /^[\w.-]+(\/[\w.-]+){0,2}$/;   // "name", "toy/name", up to MAX_DEPTH segments
 const REF_NAME = /^[\w][\w .()-]*\.(jpe?g|png|webp|gif)$/i;   // what counts as a reference image in <model>/ref/
 const PRESETS = ['iso', 'top', 'front', 'side', 'under'];
-
-// Pretty JSON, but arrays of numbers (points, poses, colours) stay on one line so a coordinate is one greppable
-// line and the file stays short. Applied to the innermost arrays first, then to arrays of those.
-function notesJson(doc) {
-  let s = JSON.stringify(doc, null, 2);
-  const scalar = /\[\s*((?:-?\d+(?:\.\d+)?(?:e[-+]?\d+)?|null|true|false)(?:,\s*(?:-?\d+(?:\.\d+)?(?:e[-+]?\d+)?|null|true|false))*)\s*\]/g;
-  s = s.replace(scalar, (m, inner) => `[${inner.replace(/\s+/g, ' ').replace(/ ,/g, ',')}]`);
-  const nested = /\[\s*(\[[^\[\]]*\](?:,\s*\[[^\[\]]*\])*)\s*\]/g;      // [[1, 2], [3, 4]] on one line when short
-  s = s.replace(nested, (m, inner) => { const one = `[${inner.replace(/\s+/g, ' ')}]`; return one.length <= 100 ? one : m; });
-  // flat objects (a hit, a pose) on one line when short
-  const flat = /\{\s*("[^"\n]*":\s*(?:"[^"\n]*"|-?\d[\d.e+-]*|null|true|false|\[[^\[\]{}]*\])(?:,\s*"[^"\n]*":\s*(?:"[^"\n]*"|-?\d[\d.e+-]*|null|true|false|\[[^\[\]{}]*\]))*)\s*\}/g;
-  s = s.replace(flat, (m, inner) => { const one = `{ ${inner.replace(/\s*\n\s*/g, ' ')} }`; return one.length <= 100 ? one : m; });
-  return s + '\n';
-}
 
 // next free id with this prefix: a1, a2, ... (annotations) or o1, o2, ... (overlays)
 function nextId(list, prefix) {
@@ -113,6 +98,9 @@ class Model {
     this.view = null;           // last pose pushed to the browser via POST /view
     this.viewSeq = 0;
     this.camera = null;         // what the browser reports it is showing (PUT /view)
+    this.stl = () => null;      // part name -> its cached STL, from the last build
+    this.keys = new Set();      // that build's cache keys, kept through the next build's prune
+    this.fresh = false;         // POST /build: render again even what the cache has
     // Only the .scad files and viewer.json affect the build. annotations.json changes are reloaded, not rebuilt.
     this.watcher = watch(dir, (ev, file) => {
       if (!file) return;
@@ -162,7 +150,7 @@ class Model {
       const doc = await this.loadNotes();
       const result = fn(doc);
       doc.rev++; doc.updated = new Date().toISOString();
-      const text = notesJson(doc);
+      const text = compactJson(doc);
       await writeFile(this.notesPath + '.tmp', text);
       await rename(this.notesPath + '.tmp', this.notesPath);
       this.notesText = text;
@@ -232,34 +220,16 @@ class Model {
     this.broadcast('building', {});
     const t0 = performance.now();
     try {
-      const manifest = JSON.parse(await readFile(path.join(this.dir, 'viewer.json'), 'utf8'));
-      const scadPath = path.join(this.dir, manifest.file);
-      const src = await readFile(scadPath, 'utf8');
-      state.file = manifest.file;
-      state.reference = manifest.reference ?? null;
-      state.source = src;
-      const defines = { ...(manifest.defines ?? {}), ...state.overrides };
-      // switches the viewer drives itself are not user parameters
-      state.params = parseParams(src).filter((p) => !(p.name in (manifest.defines ?? {})));
-      const assigns = Object.entries(defines).map(([k, v]) => `${k} = ${fmt(v)};`).join('\n');
-      await mkdir(this.cache, { recursive: true });
-
-      state.parts = await Promise.all(manifest.parts.map(async (p) => {
-        const harness = `include <${scadPath}>\n${assigns}\n${p.call}\n`;
-        const hp = path.join(this.cache, `${p.name}.scad`);
-        const out = path.join(this.cache, `${p.name}.stl`);
-        await writeFile(hp, harness);
-        const t = performance.now();
-        const proc = Bun.spawn([OPENSCAD, '--backend', 'Manifold', '--export-format', 'binstl', '-o', out, hp], { stderr: 'pipe', stdout: 'pipe', env: OPENSCAD_ENV });
-        const [err, outp] = await Promise.all([new Response(proc.stderr).text(), new Response(proc.stdout).text()]);
-        const code = await proc.exited;
-        const log = (err + outp).split('\n').filter((l) => /error|warning|deprecated/i.test(l) && !/NoError/.test(l)).join('\n');
-        let tris = 0;
-        try { tris = Math.max(0, ((await stat(out)).size - 84) / 50); } catch {}
-        const mod = p.call.match(/^\s*(\w+)\s*\(/);
-        return { name: p.name, call: p.call, color: p.color ?? '#999999', group: p.group ?? null, reference: !!p.reference, module: mod?.[1] ?? null,
-                 ok: code === 0 && tris > 0, empty: /top level object is empty/i.test(err + outp), tris, ms: Math.round(performance.now() - t), log, version: Date.now() };   // empty: built fine but produced nothing (a part that is off in this configuration)
-      }));
+      const m = await loadModel(host, this.dir);
+      state.file = m.manifest.file;
+      state.reference = m.manifest.reference ?? null;
+      state.source = m.source;
+      state.params = m.params;
+      const fresh = this.fresh; this.fresh = false;
+      const built = await buildParts(host, m, this.cache, { overrides: state.overrides, keep: this.keys, fresh });
+      state.parts = built.parts;
+      this.stl = built.stl;
+      this.keys = new Set(built.keys.values());
     } catch (e) {
       state.error = String(e.message ?? e);
     }
@@ -269,57 +239,6 @@ class Model {
     this.broadcast('built', this.publicState());
     if (this.buildQueued) { this.buildQueued = false; this.build(); }
   }
-}
-
-// ---- source analysis -------------------------------------------------
-function parseParams(src) {
-  const params = [];
-  let section = 'parameters';
-  const lines = src.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^\s*module\s+\w+\s*\(/.test(line)) break;   // only the top-of-file block
-    const sec = line.match(/^\/\/\s*-{3,}\s*(.+?)\s*-{3,}/);
-    if (sec) { section = sec[1]; continue; }
-    if (!/^\w+\s*=/.test(line)) continue;
-    const comment = (line.match(/\/\/\s*(.*)$/)?.[1] ?? '').trim();
-    const code = line.replace(/\/\/.*$/, '');
-    for (const m of code.matchAll(/(\w+)\s*=\s*([^;]+);/g))
-      if (m[1] !== '$fn') params.push({ section, name: m[1], value: m[2].trim(), comment, line: i + 1 });
-  }
-  return params;
-}
-
-const BUILTIN = new Set('translate rotate mirror scale cube cylinder sphere polygon circle square linear_extrude rotate_extrude hull minkowski difference union intersection offset import color for if let echo children projection resize multmatrix render surface text polyhedron'.split(' '));
-// the module plus every user module it calls, depth-first, each once
-function moduleSources(src, name, seen = new Set()) {
-  if (seen.has(name)) return [];
-  seen.add(name);
-  const m = moduleSource(src, name);
-  if (!m) return [];
-  const out = [{ name, ...m }];
-  for (const c of m.code.matchAll(/\b([a-zA-Z_]\w*)\s*\(/g))
-    if (!BUILTIN.has(c[1]) && c[1] !== name) out.push(...moduleSources(src, c[1], seen));
-  return out;
-}
-function moduleSource(src, name) {
-  const re = new RegExp(`^[ \\t]*module\\s+${name}\\s*\\(`, 'm');
-  const m = re.exec(src);
-  if (!m) return null;
-  // pull leading comment lines
-  let start = m.index;
-  const before = src.slice(0, start).split('\n');
-  let k = before.length - 2;
-  while (k >= 0 && /^\s*\/\//.test(before[k])) k--;
-  const commentStart = before.slice(0, k + 1).join('\n').length + (k >= 0 ? 1 : 0);
-  // brace match
-  let i = src.indexOf('{', m.index), depth = 0;
-  for (; i < src.length; i++) {
-    if (src[i] === '{') depth++;
-    else if (src[i] === '}') { depth--; if (depth === 0) break; }
-  }
-  const startLine = src.slice(0, commentStart).split('\n').length;
-  return { code: src.slice(commentStart, i + 1), line: startLine };
 }
 
 // ---- http ------------------------------------------------------------
@@ -381,7 +300,7 @@ Bun.serve({
     }
     if (route.startsWith('parts/')) {
       const name = path.basename(route, '.stl');
-      return new Response(Bun.file(path.join(model.cache, `${name}.stl`)), { headers: { 'cache-control': 'no-store' } });
+      return new Response(Bun.file(model.stl(name) ?? path.join(model.cache, `${name}.stl`)), { headers: { 'cache-control': 'no-store' } });
     }
     if (route === 'ref' && state.reference) return new Response(Bun.file(path.join(model.dir, state.reference)));
 
@@ -471,7 +390,7 @@ Bun.serve({
       model.scheduleBuild();
       return json({ ok: true });
     }
-    if (route === 'build' && req.method === 'POST') { model.scheduleBuild(); return json({ ok: true }); }
+    if (route === 'build' && req.method === 'POST') { model.fresh = true; model.scheduleBuild(); return json({ ok: true }); }
     return new Response('not found', { status: 404 });
   },
 });
@@ -479,14 +398,7 @@ Bun.serve({
 const names = await listModelNames();
 console.log(`scad-viewer api on ${HOST}:${PORT}, root ${ROOT}, models: ${names.join(', ') || '(none)'}`);
 // Say so up front if OpenSCAD is missing or too old: otherwise every part just shows as failed.
-try {
-  const p = Bun.spawn([OPENSCAD, '--version'], { stderr: 'pipe', stdout: 'pipe' });
-  const v = ((await new Response(p.stderr).text()) + (await new Response(p.stdout).text())).trim();
-  const year = +(v.match(/(\d{4})\.\d+/)?.[1] ?? 0);
-  if (year && year < 2024) console.error(`[openscad] ${OPENSCAD} is ${v}: too old for --backend Manifold. Install a development snapshot (macOS: brew install --cask openscad@snapshot) or point OPENSCAD at one.`);
-  else console.log(`[openscad] ${OPENSCAD} (${v})`);
-} catch {
-  console.error(`[openscad] cannot run "${OPENSCAD}". Install an OpenSCAD development snapshot and put it on PATH, or set OPENSCAD=/path/to/openscad.`);
-}
+const oc = await checkOpenscad();
+(oc.ok ? console.log : console.error)(oc.message);
 // SCAD_PROJECT is optional now: it only pre-warms that model's build.
 if (process.env.SCAD_PROJECT) getModel(path.relative(ROOT, path.resolve(process.env.SCAD_PROJECT)));
