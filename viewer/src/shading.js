@@ -4,7 +4,9 @@
 //             visible parts before every frame so the map is never wasted on empty space. Clipped-away
 //             geometry does not cast (clipShadows), so a section reads as an open box, not a lidded one.
 //   edges     dark lines along creases sharper than EDGE_DEG on every part, rebuilt when a part rebuilds.
-//             They share the part's clipping plane through parts.allMaterials().
+//             They share the part's clipping plane through parts.allMaterials(). A child of the part's mesh, so
+//             they follow its placement (lines have no winding, so a mirror cannot turn them); the lines
+//             themselves are built once per STL and shared by every instance showing it.
 //   headlight the fill light rides with the camera, so whatever faces you is lit even inside the shadow.
 import * as THREE from 'three';
 import { MODEL } from './api.js';
@@ -25,7 +27,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 // is fixed, so orbiting cannot move a shadow, and the map pass was a full extra draw of every part per frame.
 renderer.shadowMap.autoUpdate = false;
 export const dirtyShadows = () => { renderer.shadowMap.needsUpdate = true; };
-bus.addEventListener('parts', dirtyShadows); bus.addEventListener('visibility', dirtyShadows);
+bus.addEventListener('parts', dirtyShadows); bus.addEventListener('visibility', dirtyShadows); bus.addEventListener('placed', dirtyShadows);
 const { key, fill, hemi } = lights;
 key.shadow.mapSize.set(2048, 2048);
 key.shadow.bias = -0.0005;
@@ -55,9 +57,9 @@ frameHooks.add(() => {
 function edgesFor(mesh) {
   let e = mesh.children.find((c) => c.userData.edges);
   if (e && e.userData.geo === mesh.geometry) return e;
-  if (e) { e.geometry.dispose(); mesh.remove(e); }
+  if (e) mesh.remove(e);       // its lines go with their STL (parts.js disposeGeo)
   const mat = new THREE.LineBasicMaterial({ color: EDGE_COLOR, transparent: true, opacity: edgeAlpha(), clippingPlanes: mesh.material.clippingPlanes });
-  e = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, EDGE_DEG), mat);
+  e = new THREE.LineSegments(mesh.geometry.userData.edges ??= new THREE.EdgesGeometry(mesh.geometry, EDGE_DEG), mat);
   e.userData.edges = true; e.userData.geo = mesh.geometry; e.raycast = () => {};
   mesh.add(e);
   return e;

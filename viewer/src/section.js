@@ -28,7 +28,9 @@
 // capped this pixel": drawing the cap replaces the byte with the flag, so the next part's count starts clean
 // and a non-zero count on a flagged pixel is an overlap. Per part, in order: stencil back, stencil front,
 // overlap cap (flag set and count != 0), cap (count != 0). Every mesh sits in the scene directly with its own
-// renderOrder; a Group's renderOrder would sort its children as a block, before every cap.
+// renderOrder; a Group's renderOrder would sort its children as a block, before every cap. The two stencil meshes
+// carry their part's placement (matrix copied each frame); under a mirror three.js flips the front face for any
+// object whose matrix has a negative determinant, so back and front still mean the solid's back and front.
 import * as THREE from 'three';
 import { createElement, FlipVertical2, Focus, Replace, RotateCcw } from 'lucide';
 import { MODEL } from './api.js';
@@ -123,7 +125,7 @@ float hatch(vec2 dir) {
 const OVERLAP = new THREE.Color(0xd23c3c), OVERLAP_LINE = new THREE.Color(0x5a1010);
 
 // ---------- one cap set per part ----------
-const caps = new Map();      // part name -> { back, front, overlap, cap, i }
+const caps = new Map();      // placed part (instance.part) -> { back, front, overlap, cap, i }
 const capGeo = new THREE.PlaneGeometry(1, 1);
 function makeCap(name, mesh, i) {
   const back = new THREE.Mesh(mesh.geometry, stencilMat(THREE.BackSide, THREE.IncrementWrapStencilOp));
@@ -131,6 +133,7 @@ function makeCap(name, mesh, i) {
   const overlap = new THREE.Mesh(capGeo, capMat(true));
   const cap = new THREE.Mesh(capGeo, capMat(false));
   overlap.material.color.copy(OVERLAP); overlap.material.userData.u.uLine.value.copy(OVERLAP_LINE);
+  back.matrixAutoUpdate = front.matrixAutoUpdate = false;     // the part's placement, from syncCaps
   const c = { back, front, overlap, cap, i };
   order(c, i);
   for (const m of [back, front, overlap, cap]) { m.frustumCulled = false; m.userData.section = name; scene.add(m); }
@@ -170,6 +173,7 @@ function syncCaps() {
     k++;
     if (!on) continue;
     if (cp.back.geometry !== mesh.geometry) cp.back.geometry = cp.front.geometry = mesh.geometry;
+    if (!cp.back.matrix.equals(mesh.matrixWorld)) for (const s of [cp.back, cp.front]) { s.matrix.copy(mesh.matrixWorld); s.updateMatrixWorld(); }
     const u = cp.cap.material.userData.u;
     cp.cap.material.color.copy(mesh.material.color).add(mesh.material.emissive);
     u.uLine.value.copy(mesh.material.color).multiplyScalar(0.45);
@@ -512,7 +516,7 @@ canvas.addEventListener('pointermove', (ev) => {
     if (u) {
       ev.stopImmediatePropagation(); canvas.style.cursor = 'crosshair';
       tip.hidden = false; tip.style.left = ev.offsetX + 14 + 'px'; tip.style.top = ev.offsetY + 14 + 'px';
-      tip.textContent = u.axis ? `${PLANE[u.axis]} plane` : `along this face of ${u.hit.object.userData.name}`;
+      tip.textContent = u.axis ? `${PLANE[u.axis]} plane` : `along this face of ${u.hit.object.userData.label ?? u.hit.object.userData.name}`;
     } else { if (canvas.style.cursor === 'crosshair') canvas.style.cursor = ''; tip.hidden = true; }
     return;
   }
@@ -547,13 +551,13 @@ canvas.addEventListener('dblclick', (ev) => {
 }, true);
 
 // ---------- picking the plane ----------
-// the face's outward normal, in world space (parts have no transform, but say so anyway)
 // the nearest origin plane or visible part face under the pointer: { axis, hit } or { hit }
 function pickUnder(ndc) {
   const hit = raycast(ndc, [...visibleMeshes(), ...origin.children]);
   return hit ? { axis: hit.object.userData.originAxis, hit } : null;
 }
-const faceNormal = (hit) => hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+// the face's outward normal, in world space: through the normal matrix, so a scaled or mirrored part's is right
+const faceNormal = (hit) => hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld));
 // cut along the face under a hit: base axis is the normal's largest component, the tilt makes up the rest, the
 // part's side (behind the face) is kept, and the gizmo sits where the face was clicked
 function cutAlong(hit) {
