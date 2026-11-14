@@ -1,6 +1,8 @@
 # Spec: components, instances and scenes (2026-11-14)
 
-Status: plan only, nothing built. Worked out with Armen on 2026-11-14 after a few weeks of daily use.
+Status: phase 0's headless half is built (2026-11-14, branch `components`): `core/`, `scene.json` without `set` or
+cross-folder `use`, `armenscad scene`, the scene endpoints in `viewer/server.js`. The viewer front end is next.
+Worked out with Armen on 2026-11-14 after a few weeks of daily use.
 Covers backlog items 1 and 2 in `docs/NOTES.md` (moving parts by hand, combined projects). Builds the ground
 `docs/TODO-kinematics-2026-10-26.md` (joints, poses) stands on.
 Revised the same day after a review pass: two layers and one language, the scratch rule, naming rules, the

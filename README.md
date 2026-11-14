@@ -11,7 +11,7 @@ OpenSCAD models are code, which an agent writes well, but neither of you can see
 - **`lib/armenscad/`**: shared OpenSCAD modules (printable fillets, sweeps, teardrop holes, settled clearances), used as `use <armenscad/shape.scad>` from any folder.
 - **`template/`**: the skeleton of a model folder: model, viewer manifest, print layout, collision pairs, tolerance coupon, export scripts, README.
 - **`skills/openscad/`**: the playbook that tells Claude how to use all of the above. The repo is a Claude Code plugin (`armenscad`), so installing it gives Claude the skill and the `armenscad` command everywhere.
-- **`bin/armenscad`**: one command for all of it: `browse`, `init`, `check`, `notes`, `install`, and every script in `tools/` by name.
+- **`bin/armenscad`**: one command for all of it: `browse`, `init`, `check`, `notes`, `scene`, `install`, and every script in `tools/` by name.
 
 ## Requirements
 
@@ -76,8 +76,9 @@ Draw on the render (pen `p`, arrow `a`, label `t`, points `k`), type a caption, 
 | `.claude-plugin/` | Plugin and marketplace manifests. |
 | `bin/armenscad` | The command. |
 | `skills/openscad/` | The Claude skill. `docs/lessons.md` is its appendix of things learned. |
+| `core/` | The headless core (TypeScript under Bun): builds parts through a content-keyed cache, reads and writes `scene.json`, writes `_scene.scad`. The viewer's server and `armenscad scene` are its clients; `bun test` runs its tests. |
 | `viewer/` | Bun API server (`server.js`, port 3003) and Vite + three.js front end (port 5180). `armenscad browse [DIR]` starts it on a workspace folder (next free ports if busy). |
-| `tools/` | `check.sh`, `stlinfo.py`, `scadset`, `notes`, `voxcmp.py`, `slice.sh`, `svgpts.py`, `stlshift.py`, `3mfinfo.py`, `3mf2stl.py`, `shapr_dump.py`, `ldraw2stl.py` (LDraw part to a reference STL), `stlshells.py` (union a mesh-soup download's closed shells, report the open ones), `new-model.sh`. Usage is in each file's header comment. |
+| `tools/` | `check.sh`, `stlinfo.py`, `scadset`, `notes`, `scene` (a model's `scene.json`: placed copies of its parts, and `_scene.scad`), `voxcmp.py`, `slice.sh`, `svgpts.py`, `stlshift.py`, `3mfinfo.py`, `3mf2stl.py`, `shapr_dump.py`, `ldraw2stl.py` (LDraw part to a reference STL), `stlshells.py` (union a mesh-soup download's closed shells, report the open ones), `new-model.sh`. Usage is in each file's header comment. |
 | `lib/armenscad/` | Shared modules, see `lib/README.md`. Run `tools/install-lib.sh` once so OpenSCAD finds them from anywhere (the viewer and tools find them on their own). |
 | `template/` | New-model skeleton. |
 | `examples/` | Demo models tracked in this repo. |

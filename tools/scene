@@ -1,0 +1,71 @@
+#!/usr/bin/env bun
+// armenscad scene: list and edit a model's scene.json (placed copies of its parts) and write _scene.scad.
+// Writes go through the core, the same writer as the viewer's server; an open viewer picks them up over SSE.
+//   scene <model-folder>                              list instances, one line each, as field=value
+//   scene <model-folder> add <id> [field=value ...]   a new instance of the model's parts (all, or parts=a,b)
+//   scene <model-folder> copy <from> <id> [field=value ...]
+//   scene <model-folder> move <id> dx,dy,dz           by a delta; set <id> at=x,y,z puts it somewhere
+//   scene <model-folder> set <id> field=value ...     fields: parts at rot scale mirror color material scratch;
+//                                                     field= (empty) clears one back to its default
+//   scene <model-folder> rm <id>
+//   scene <model-folder> scad [--scratch]             write _scene.scad (scratch instances only with --scratch)
+//   scene <model-folder> json                         the resolved scene: hash, instances, placed parts
+import path from 'node:path';
+import {
+  readScene, editScene, writeSceneScad, addInstance, copyInstance, moveInstance, removeInstance, setFields, parseField,
+  SceneError, StaleError, type Fields, type Instance,
+} from '../core/index.ts';
+import { bunHost } from '../core/bun.ts';
+
+const host = bunHost();
+const help = (await Bun.file(import.meta.path).text()).split('\n').filter((l) => l.startsWith('//   ')).map((l) => `armenscad ${l.slice(5)}`).join('\n');
+const usage = (): never => { console.error(`usage:\n${help}`); process.exit(2); };
+
+const [folder, cmd = 'list', ...args] = process.argv.slice(2);
+if (!folder || folder === '-h' || folder === '--help') usage();
+const dir = path.resolve(folder);
+if (!(await Bun.file(path.join(dir, 'viewer.json')).exists())) { console.error(`scene: no viewer.json in ${dir}`); process.exit(2); }
+
+const fields = (list: string[]): Fields => Object.fromEntries(list.map(parseField));
+const vec = (s: string) => { const [, v] = parseField(`at=${s}`); return v as [number, number, number]; };
+const rel = (p: string) => { const r = path.relative(process.cwd(), p); return r.startsWith('..') ? p : r; };
+const need = (n: number) => { if (args.length < n) usage(); };
+
+function line(inst: Instance): string {
+  const rest = Object.entries(inst).filter(([k]) => k !== 'id')
+    .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`);
+  return `  ${inst.id.padEnd(16)} ${rest.join(' ')}`.trimEnd();
+}
+
+try {
+  if (cmd === 'list') {
+    const st = await readScene(host, dir);
+    console.log(st.exists ? `${rel(path.join(dir, 'scene.json'))}  (hash ${st.hash})` : 'no scene.json: the default scene');
+    if (st.errors.length) { for (const e of st.errors) console.error(`  error: ${e}`); process.exit(1); }
+    for (const inst of st.scene!.instances) console.log(line(inst));
+    const parts = st.parts.map((p) => p.path);
+    console.log(`  ${parts.length} placed part${parts.length === 1 ? '' : 's'}: ${parts.join(' ')}`.trimEnd());
+  } else if (cmd === 'json') {
+    console.log(JSON.stringify(await readScene(host, dir), null, 2));
+  } else if (cmd === 'scad') {
+    const r = await writeSceneScad(host, dir, { scratch: args.includes('--scratch') });
+    console.log(`wrote ${rel(r.path)}`);
+  } else {
+    let edit;
+    if (cmd === 'add') { need(1); edit = (s: any) => addInstance(s, args[0], fields(args.slice(1))); }
+    else if (cmd === 'copy') { need(2); edit = (s: any) => copyInstance(s, args[0], args[1], fields(args.slice(2))); }
+    else if (cmd === 'move') { need(2); const by = vec(args[1]); edit = (s: any) => moveInstance(s, args[0], by); }
+    else if (cmd === 'set') { need(2); const f = fields(args.slice(1)); edit = (s: any) => setFields(s, args[0], f); }
+    else if (cmd === 'rm') { need(1); edit = (s: any) => removeInstance(s, args[0]); }
+    else usage();
+    const r = await editScene(host, dir, edit!);
+    const inst = r.scene.instances.find((x) => x.id === (cmd === 'copy' ? args[1] : args[0]));
+    console.log(inst ? line(inst).trim() : `removed ${args[0]}`);
+    console.log(`scene.json ${r.hash}`);
+  }
+} catch (e: any) {
+  if (e instanceof SceneError) for (const m of e.errors) console.error(`scene: ${m}`);
+  else if (e instanceof StaleError) console.error(`scene: ${e.message}`);
+  else console.error(`scene: ${e.message ?? e}`);
+  process.exit(1);
+}
