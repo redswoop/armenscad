@@ -2,5 +2,7 @@
 export * from './io.ts';
 export * from './json.ts';
 export * from './source.ts';
+export * from './scene.ts';
 export * from './scad.ts';
 export * from './build.ts';
+export * from './model.ts';

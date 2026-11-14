@@ -5,11 +5,12 @@
 // the model name is the relative path ("toy/name").
 // Each model gets its own state, file watcher, render cache and SSE clients,
 // created lazily on first request. Routes are /api/models and /api/<model>/....
-// What a model is (building, the cache) lives in the core (../core); this file is HTTP, SSE and watching.
+// What a model is (building, the cache, scene.json) lives in the core (../core); this file is HTTP, SSE and watching.
 import { watch } from 'node:fs';
 import { readFile, writeFile, stat, readdir, access, rename } from 'node:fs/promises';
 import path from 'node:path';
-import { compactJson, moduleSources, loadModel, buildParts } from '../core/index.ts';
+import { compactJson, moduleSources, loadModel, buildParts, readScene, writeScene, editScene, setFields,
+         SceneError, StaleError, SCENE_FILE, SCENE_SCAD } from '../core/index.ts';
 import { bunHost, checkOpenscad } from '../core/bun.ts';
 
 const PORT = parseInt(process.env.PORT ?? '3003', 10);
@@ -101,11 +102,17 @@ class Model {
     this.stl = () => null;      // part name -> its cached STL, from the last build
     this.keys = new Set();      // that build's cache keys, kept through the next build's prune
     this.fresh = false;         // POST /build: render again even what the cache has
-    // Only the .scad files and viewer.json affect the build. annotations.json changes are reloaded, not rebuilt.
+    // scene.json: written through the core (one writer at a time here); sceneHash is the last text we wrote or
+    // sent, so our own write echoing back through the watcher is not sent twice
+    this.sceneQueue = Promise.resolve();
+    this.sceneHash = null;
+    // Only the .scad files and viewer.json affect the build (not _scene.scad, which is generated from scene.json).
+    // annotations.json and scene.json changes are reloaded and sent, not rebuilt.
     this.watcher = watch(dir, (ev, file) => {
       if (!file) return;
-      if (file === 'viewer.json' || file.endsWith('.scad')) this.scheduleBuild();
+      if (file === 'viewer.json' || (file.endsWith('.scad') && file !== SCENE_SCAD)) this.scheduleBuild();
       else if (file === 'annotations.json') this.reloadNotes();
+      else if (file === SCENE_FILE) this.reloadScene();
     });
     console.log(`[${name}] watching ${dir}`);
   }
@@ -159,6 +166,35 @@ class Model {
     };
     const p = this.notesQueue.then(run, run);
     this.notesQueue = p.catch(() => {});
+    return p;
+  }
+
+  // ---- scene: <model>/scene.json, through the core ----
+  async scene() {
+    try { return await readScene(host, this.dir); }
+    catch (e) { return { hash: null, exists: false, scene: null, parts: [], errors: [String(e.message ?? e)] }; }   // no readable viewer.json
+  }
+
+  // An outside edit (the CLI, Claude, a hand edit): send it, no rebuild; placement never runs OpenSCAD.
+  async reloadScene() {
+    const st = await this.scene();
+    if (st.hash === this.sceneHash) return;
+    this.sceneHash = st.hash;
+    console.log(`[${this.name}] scene.json changed on disk, ${st.hash}`);
+    this.broadcast('scene', st);
+  }
+
+  // write(base) -> new hash; runs one at a time, then sends the scene to every tab
+  mutateScene(write) {
+    const run = async () => {
+      this.sceneHash = await write();
+      const st = await this.scene();
+      this.sceneHash = st.hash;
+      this.broadcast('scene', st);
+      return { hash: st.hash };
+    };
+    const p = this.sceneQueue.then(run, run);
+    this.sceneQueue = p.catch(() => {});
     return p;
   }
 
@@ -360,6 +396,26 @@ Bun.serve({
           return json({ ok: true, ...(await model.mutateNotes((doc) => { doc.annotations = doc.annotations.filter((x) => x.id !== id); })) });
       }
       return json({ error: 'method not allowed' }, 405);
+    }
+
+    // scene: GET the resolved scene and its hash. PUT { base, scene } replaces it; PATCH scene/<id> { base, ...fields }
+    // sets fields of one instance (null clears one). A write whose base is not the file's hash any more is refused
+    // with 409 and the current hash: reload and reapply. Changes go out as SSE 'scene'; nothing rebuilds.
+    if (route === 'scene' || route.startsWith('scene/')) {
+      const whole = route === 'scene';
+      if (whole && req.method === 'GET') return json(await model.scene());
+      if (!(whole ? req.method === 'PUT' : req.method === 'PATCH')) return json({ error: 'method not allowed' }, 405);
+      let b; try { b = await req.json(); } catch { b = null; }
+      if (!b || typeof b !== 'object' || typeof b.base !== 'string') return json({ error: 'body must carry base: the hash the edit is based on' }, 400);
+      const { base, ...fields } = b;
+      const write = whole ? () => writeScene(host, model.dir, b.scene, base)
+        : async () => (await editScene(host, model.dir, (sc) => setFields(sc, route.slice(6), fields), base)).hash;
+      try { return json({ ok: true, ...(await model.mutateScene(write)) }); }
+      catch (e) {
+        if (e instanceof StaleError) return json({ error: e.message, hash: e.hash }, 409);
+        if (e instanceof SceneError) return json({ error: e.message, errors: e.errors }, 400);
+        return json({ error: String(e.message ?? e) }, 500);
+      }
     }
 
     // view: POST pushes a camera pose to every open browser tab (SSE 'view'); PUT is the browser reporting what it
