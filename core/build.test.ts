@@ -45,10 +45,34 @@ describe('build cache', () => {
     expect(left.has(a.keys.get('box')!)).toBe(false);           // two builds back: gone
     expect(left.has(c.keys.get('box')!)).toBe(true);            // the previous build: kept
   });
-  test('two parts with the same call build once', async () => {
+  test('two parts with the same call build once, and say so by sharing a key', async () => {
     const { host, builder } = memHost({ ...files, '/w/m/viewer.json': JSON.stringify({ file: 'box.scad', parts: [{ name: 'a', call: 'box();' }, { name: 'b', call: 'box();' }] }) });
     const r = await buildParts(host, await loadModel(host, '/w/m'), '/cache/m');
     expect(builder.runs).toHaveLength(1);
     expect(r.parts.every((p) => p.ok)).toBe(true);
+    expect(r.parts[0].key).toBe(r.parts[1].key);
+    expect(r.parts[0].ms).toBe(r.parts[1].ms);
+  });
+  test('a cache hit reports how long the build took, not how long the hit took', async () => {
+    const { host, builder } = memHost(files, tris);
+    const slow = builder.render.bind(builder);
+    builder.render = async (scad, out) => { await Bun.sleep(30); return slow(scad, out); };
+    const m = await loadModel(host, '/w/m');
+    const a = await buildParts(host, m, '/cache/m');
+    expect(a.parts[0].ms).toBeGreaterThanOrEqual(25);
+    const b = await buildParts(host, m, '/cache/m', { keep: new Set(a.keys.values()) });
+    expect(builder.runs).toHaveLength(3);                       // all hits
+    expect(b.parts.map((p) => p.ms)).toEqual(a.parts.map((p) => p.ms));
+    expect(b.parts[0].key).toBe(a.parts[0].key);
+  });
+  test('a cache entry from before build times were kept: ms is null', async () => {
+    const { host, files: fs } = memHost(files, tris);
+    const m = await loadModel(host, '/w/m');
+    const a = await buildParts(host, m, '/cache/m');
+    const meta = `/cache/m/${a.keys.get('box')}.json`;
+    const { ms, ...old } = JSON.parse(new TextDecoder().decode((await fs.read(meta))!));
+    await fs.write(meta, JSON.stringify(old));
+    const b = await buildParts(host, m, '/cache/m', { keep: new Set(a.keys.values()) });
+    expect(b.parts[0].ms).toBeNull();
   });
 });

@@ -36,12 +36,14 @@ export async function loadModel(host: Host, dir: string): Promise<LoadedModel> {
   return { dir, manifest, scadPath, source, params };
 }
 
-// What the viewer's state.parts holds for one part (unchanged from before the core).
+// What the viewer's state.parts holds for one part. ms: how long its OpenSCAD run took, also when it came from the
+// cache (null for a cache entry from before build times were kept); key: the cache key, shared by every part
+// that renders the same harness, so a readout can count one build once.
 export interface BuiltPart {
   name: string; call: string; color: string; group: string | null; reference: boolean; module: string | null;
-  ok: boolean; empty: boolean; tris: number; ms: number; log: string; version: number;
+  ok: boolean; empty: boolean; tris: number; ms: number | null; key: string; log: string; version: number;
 }
-interface CacheEntry { code: number; output: string; tris: number }
+interface CacheEntry { code: number; output: string; tris: number; ms?: number }
 
 const sha = (...parts: (string | Uint8Array)[]) => { const h = createHash('sha256'); for (const p of parts) h.update(p); return h.digest('hex'); };
 
@@ -57,8 +59,9 @@ export const cacheKey = (builder: string, digest: string, harnessText: string) =
 export const buildLog = (output: string) =>
   output.split('\n').filter((l) => /error|warning|deprecated/i.test(l) && !/NoError/.test(l)).join('\n');
 
-// Build every part of the model into cacheDir (<key>.scad, <key>.stl, <key>.json for the result), reusing any
-// earlier build with the same key unless fresh. A failed build is not cached, so the next build tries again.
+// Build every part of the model into cacheDir (<key>.scad, <key>.stl, <key>.json for the result and how long it
+// took), reusing any earlier build with the same key unless fresh. A failed build is not cached, so the next build
+// tries again.
 // Afterwards the folder keeps only this build's keys and the previous build's (keep), so a reset to the last
 // values is instant and the cache cannot grow without bound.
 export interface BuildOptions { overrides?: Record<string, unknown>; keep?: Set<string>; fresh?: boolean }
@@ -77,9 +80,11 @@ export async function buildParts(host: Host, m: LoadedModel, cacheDir: string, {
     const hp = path.join(cacheDir, `${key}.scad`);
     await files.write(hp, text);
     await files.remove(out);                          // OpenSCAD writes nothing for an empty result: no stale file
+    const t = performance.now();
     const { code, output } = await builder.render(hp, out);
+    const ms = Math.round(performance.now() - t);
     const size = await files.size(out);
-    const e = { code, output, tris: size == null ? 0 : Math.max(0, (size - 84) / 50) };
+    const e = { code, output, tris: size == null ? 0 : Math.max(0, (size - 84) / 50), ms };
     if (code === 0) await files.write(meta, JSON.stringify(e));
     return e;
   };
@@ -88,12 +93,11 @@ export async function buildParts(host: Host, m: LoadedModel, cacheDir: string, {
     const text = harness(m.scadPath, defines, p.call);
     const key = cacheKey(builder.id, digest, text);
     keys.set(p.name, key);
-    const t = performance.now();
     if (!running.has(key)) running.set(key, render(key, text));
     const e = await running.get(key)!;
     const mod = p.call.match(/^\s*(\w+)\s*\(/);
     return { name: p.name, call: p.call, color: p.color ?? '#999999', group: p.group ?? null, reference: !!p.reference, module: mod?.[1] ?? null,
-             ok: e.code === 0 && e.tris > 0, empty: /top level object is empty/i.test(e.output), tris: e.tris, ms: Math.round(performance.now() - t),
+             ok: e.code === 0 && e.tris > 0, empty: /top level object is empty/i.test(e.output), tris: e.tris, ms: e.ms ?? null, key,
              log: buildLog(e.output), version: Date.now() };   // empty: built fine but produced nothing (a part that is off in this configuration)
   }));
   const used = new Set([...keys.values()]);
