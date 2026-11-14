@@ -1,7 +1,12 @@
 # Spec: components, instances and scenes (2026-11-14)
 
-Status: phase 0's headless half is built (2026-11-14, branch `components`): `core/`, `scene.json` without `set` or
-cross-folder `use`, `armenscad scene`, the scene endpoints in `viewer/server.js`. The viewer front end is next.
+Status: phase 0 is built (2026-11-14, branch `components`, not yet merged or judged by Armen): `core/`, `scene.json`
+without `set` or cross-folder `use`, `armenscad scene`, the scene endpoints in `viewer/server.js`; the viewer shows the
+scene (one mesh per placed part, transform audit) and edits it by hand: the light-pipe gizmo on the selected instance
+(move along / turn about X, Y, Z about its centre, XY on the orb; `viewer/src/move.js`, maths in `core/transform.ts`),
+the Instance panel (typed at, rot, mirror, scale with its warning, colour, material, scratch, rename; `instance.js`),
+duplicate / remove, and undo / redo over every scene change including outside ones, hash-checked (`history.js`).
+Not in phase 0 yet: the check and export warning on a scaled instance (phase 2 brings both).
 Worked out with Armen on 2026-11-14 after a few weeks of daily use.
 Covers backlog items 1 and 2 in `docs/NOTES.md` (moving parts by hand, combined projects). Builds the ground
 `docs/TODO-kinematics-2026-10-26.md` (joints, poses) stands on.
