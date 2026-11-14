@@ -101,7 +101,7 @@
         <section class="cd-panel" data-fold="instance" id="inst-panel" hidden>
           <header class="cd-panel-head"><span class="cd-panel-title">Instance</span><span class="muted" id="inst-id"></span></header>
           <div class="cd-panel-body"><div id="inst"></div></div>
-          <footer class="cd-panel-foot"><button id="inst-undo" class="icon"></button><button id="inst-redo" class="icon"></button><span class="grow"></span><button id="inst-copy" title="a copy beside it (ctrl-d)">Duplicate</button><button id="inst-remove" title="remove this instance (delete)">Remove</button></footer>
+          <footer class="cd-panel-foot"><button id="inst-undo" class="icon"></button><button id="inst-redo" class="icon"></button><span class="grow"></span><button id="inst-copy" title="a copy beside it (ctrl-d)">Duplicate</button><button id="inst-split" title="the selected part into an instance of its own, where it is, to move alone (e)" hidden>Split out</button><button id="inst-remove" title="remove this instance (delete)">Remove</button></footer>
         </section>
         <section class="cd-panel" data-fold="parameters">
           <header class="cd-panel-head"><span class="cd-panel-title">Parameters</span><span class="muted" id="p-count"></span></header>
@@ -154,6 +154,7 @@
         <span><kbd>m</kbd></span><span>move gizmo on the selection; alt while dragging: free</span>
         <span><kbd>ctrl</kbd> <kbd>z</kbd> / <kbd>⇧</kbd></span><span>undo / redo scene changes</span>
         <span><kbd>ctrl</kbd> <kbd>d</kbd> <kbd>del</kbd></span><span>duplicate, remove the instance</span>
+        <span><kbd>e</kbd></span><span>split the selected part out into an instance of its own</span>
       </div>
     </div>
   </div>

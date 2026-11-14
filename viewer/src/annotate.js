@@ -156,6 +156,16 @@ async function commit(a) {
   load();                                           // the SSE will also deliver it; this covers a dead stream
 }
 export async function load() { setDoc(await getAnnotations().catch(() => null)); }
+// a part split out of an instance into one of its own (instance.js): the hits on it name the new instance, so its
+// notes follow it when it moves. Not part of the scene's undo: once the new instance is gone again, those hits
+// fall back to where they were drawn (hitPoint), which is where the part goes back to unless it moved meanwhile.
+export async function moveNotes(from, part, to) {
+  const on = (h) => h.instance === from && h.part === part;
+  const touched = doc.annotations.filter((a) => a.hits?.some(on));
+  await Promise.all(touched.map((a) => patchAnnotation(a.id, { hits: a.hits.map((h) => (on(h) ? { ...h, instance: to } : h)) })));
+  if (touched.length) await load();
+  return touched.length;
+}
 export function setDoc(d) {
   if (!d || d.version !== 1) return;
   const text = JSON.stringify(d);

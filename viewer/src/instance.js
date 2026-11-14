@@ -4,15 +4,21 @@
 // Also copy, remove and rename, from here, the rail (rails.js) and the keys (editKey, called by main.js):
 //   ctrl/cmd-z, shift-ctrl/cmd-z   undo, redo (edits.js; every scene change this session, outside ones too)
 //   ctrl/cmd-d                     duplicate the selected instance: next free id, moved along X, selected after
+//   e                              split out: the selected part into an instance of its own (core/scene.ts
+//                                  splitInstance), where it is, selected with the gizmo on it; offered only while
+//                                  its instance shows other parts too
 //   delete / backspace             remove it (never the last one)
 //   m                              hide / show the gizmo (move.js)
 import { createElement, RotateCcw, Undo2, Redo2 } from 'lucide';
 import { history, selectedInstance, instanceData, sceneOk, say, undo, redo } from './edits.js';
-import { dragPreview, toggleMove } from './move.js';
-import { MATERIALS, select, selectGroup, clearSelect, multiInstance, setScene, sceneState, meshes, getSelection } from './parts.js';
+import { dragPreview, toggleMove, moveUI } from './move.js';
+import { MATERIALS, select, selectGroup, clearSelect, multiInstance, setScene, sceneState, meshes, getSelection, moveHidden } from './parts.js';
 import { getScene } from './api.js';
+import { app } from './app.js';
 import { bus } from './scene.js';
+import { moveNotes } from './annotate.js';
 import { moveBy, niceStep } from '../../core/transform.ts';
+import { splitInstance, freeId } from '../../core/scene.ts';
 import * as THREE from 'three';
 import './instance.css';
 
@@ -86,6 +92,7 @@ function fill(force = false) {
   $('#inst-id').textContent = id;
   $('#inst-undo').disabled = !history.canUndo; $('#inst-redo').disabled = !history.canRedo;
   $('#inst-remove').disabled = (sceneState()?.scene?.instances?.length ?? 0) <= 1;
+  $('#inst-split').hidden = !splitTarget();
   $('#inst-undo').title = history.canUndo ? `undo: ${history.peek('undo').label} (ctrl-z)` : 'nothing to undo';
   $('#inst-redo').title = history.canRedo ? `redo: ${history.peek('redo').label} (shift-ctrl-z)` : 'nothing to redo';
 }
@@ -178,6 +185,29 @@ export async function removeSelected() {
   clearSelect(); await settle();
   say(`removed ${id} (ctrl-z brings it back)`);
 }
+// Split out: the selected part, while its instance shows other parts too: { id, part } or null
+export function splitTarget() {
+  const { part, group } = getSelection();
+  if (!part || group || !sceneOk()) return null;
+  const pl = meshes.get(part)?.userData.placed; if (!pl) return null;
+  return (sceneState().parts ?? []).filter((p) => p.instance === pl.instance).length > 1 ? { id: pl.instance, part: pl.part } : null;
+}
+// one undo step through the same write path as Duplicate; the part's hidden state and its notes go with it
+export async function splitOut() {
+  const t = splitTarget();
+  if (!t) { const id = selectedInstance(); if (id && getSelection().part) say(`${id} shows only this part: nothing to split it from (move ${id} itself)`, true); return; }
+  let to = null;
+  const r = await history.change(`split ${t.part} out of ${t.id}`, (s) => {
+    to = freeId(s, t.part);           // on the scene the write is based on (a 409 rebuilds it on the fresh one)
+    return splitInstance(s, { parts: app.state.parts }, t.id, t.part, to);
+  });
+  if (!r.ok) { say(`split ${t.part} out of ${t.id}: ${r.error}`, true); return; }
+  moveHidden(`${t.id}.${t.part}`, `${to}.${t.part}`);
+  await settle(); select(`${to}.${t.part}`);
+  if (!moveUI().on) toggleMove(true);
+  const notes = await moveNotes(t.id, t.part, to).catch(() => 0);
+  say(`split ${t.part} out of ${t.id} as ${to}${notes ? `; ${notes} note${notes === 1 ? ' on it follows' : 's on it follow'} it` : ''} (ctrl-z puts it back)`);
+}
 async function rename(from, to) {
   const part = getSelection().part?.split('.').slice(1).join('.') ?? null;
   const r = await history.change(`rename ${from} to ${to}`, (s) => {
@@ -189,6 +219,7 @@ async function rename(from, to) {
 }
 
 $('#inst-copy').onclick = duplicate;
+$('#inst-split').onclick = splitOut;
 $('#inst-remove').onclick = removeSelected;
 $('#inst-undo').innerHTML = svg(Undo2); $('#inst-redo').innerHTML = svg(Redo2);
 $('#inst-undo').onclick = undo; $('#inst-redo').onclick = redo;
@@ -200,6 +231,7 @@ export function editKey(e) {
   if (mod && !e.altKey && !e.shiftKey && k === 'd') { if (selectedInstance()) duplicate(); return true; }
   if (!mod && (e.key === 'Delete' || e.key === 'Backspace') && selectedInstance()) { removeSelected(); return true; }
   if (!mod && !e.altKey && k === 'm') { toggleMove(); return true; }
+  if (!mod && !e.altKey && k === 'e' && getSelection().part) { splitOut(); return true; }
   return false;
 }
 sync();

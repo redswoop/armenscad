@@ -2,6 +2,7 @@
 // the core does (by content) and answers 409 for a stale base.
 import { describe, expect, test } from 'bun:test';
 import { SceneHistory, diffScenes, applyChanges, Conflict } from './history.js';
+import { splitInstance } from '../../core/scene.ts';
 
 function fakeServer(scene) {
   let n = 0;
@@ -79,6 +80,17 @@ describe('SceneHistory', () => {
     await h.redo(); deliver(srv, h);
     expect(srv.scene.instances[1]).toEqual({ id: 'b', at: [20, 0, 0], rot: [0, 0, 15] });
     expect(h.undoStack.length).toBe(2); expect(h.redoStack.length).toBe(1);
+  });
+  test('a split is one step; undo gives back the source exactly, with no parts list if it had none', async () => {
+    const { srv, h } = start();
+    const was = structuredClone(srv.scene), man = { parts: [{ name: 'box' }, { name: 'lid' }, { name: 'pin' }] };
+    expect((await h.change('split lid out of b', (s) => splitInstance(s, man, 'b', 'lid'))).ok).toBe(true); deliver(srv, h);
+    expect(srv.scene.instances).toEqual([{ id: 'a' }, { id: 'b', at: [10, 0, 0], parts: ['box', 'pin'] }, { id: 'lid', at: [10, 0, 0], parts: ['lid'] }]);
+    expect(h.undoStack.length).toBe(1);
+    await h.undo(); deliver(srv, h);
+    expect(srv.scene).toEqual(was);
+    await h.redo(); deliver(srv, h);
+    expect(ids(srv)).toEqual(['a', 'b', 'lid']);
   });
   test('our own write coming back over SSE, before or after the reply, is not an outside change', async () => {
     const { srv, h } = start();

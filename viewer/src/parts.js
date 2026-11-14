@@ -269,6 +269,11 @@ function toggle(name) {
   const m = meshes.get(name); if (m) m.visible = !hidden.has(name);
   bus.dispatchEvent(new Event('visibility'));   // bounds.js re-measures
 }
+// a placed part whose path changed (split out into its own instance, instance.js): its hidden state goes with it
+export function moveHidden(from, to) {
+  if (!hidden.has(from)) return;
+  hidden.delete(from); hidden.add(to); saveHidden();
+}
 export const getSelection = () => ({ part: app.selected, group: selectedGroup });
 export const groupMembers = (g) => groupMap().get(g) ?? [];
 export const groupNames = () => [...groupMap().keys()];

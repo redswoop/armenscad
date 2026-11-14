@@ -2,7 +2,8 @@
 // the state under it, the shortcut beside it. A group's handle unfolds its labels for good.
 //   left   top     spaces: View, Annotate; Items shows / hides the left panels
 //          middle  what fits now: the section's tools while it is on, the drawing tools in Annotate, the
-//                  selection's (Box, Code for a part, Hide, Move / Rotate, Duplicate, Remove, Deselect) with one, else Box and Ghost
+//                  selection's (Box, Code for a part, Hide, Move / Rotate, Duplicate, Split out for a part of a
+//                  several-part instance, Remove, Deselect) with one, else Box and Ghost
 //          bottom  modes: Section
 //   right  top     camera: Home, Views (tray), Fit, Camera (perspective / ortho)
 //          middle  Display (tray: shadows, edges, headlight, ghost opacity, grid, printer bed)
@@ -13,7 +14,7 @@
 import { Rail } from '@redswoop/cyberdos/web';
 import { createElement, Rotate3d, PenTool, PanelLeft, PanelRight, MousePointer2, MoveUpRight, Type, Crosshair, Box, Ghost,
          EyeOff, X, Code, SquareSplitVertical, FlipVertical2, Focus, Replace, RotateCcw, Home, View, Maximize, Axis3d, SunMedium,
-         Settings2, Move3d, CopyPlus, Trash2 } from 'lucide';
+         Settings2, Move3d, CopyPlus, Trash2, Ungroup } from 'lucide';
 import { bus, fit, setOrtho, isOrtho } from './scene.js';
 import { getSelection, hideSelection, clearSelect, toggleGhost, ghostState, toggleCode, codeState } from './parts.js';
 import * as annotate from './annotate.js';
@@ -23,7 +24,7 @@ import { st as shade } from './shading.js';
 import { st as ground } from './grid.js';
 import { home } from './viewcube.js';
 import { moveUI, toggleMove } from './move.js';
-import { duplicate, removeSelected } from './instance.js';
+import { duplicate, removeSelected, splitTarget, splitOut } from './instance.js';
 
 const $ = (s) => document.querySelector(s);
 const svg = (icon) => createElement(icon).outerHTML;
@@ -119,6 +120,7 @@ function contextEntries() {
     { id: 'hide', label: g ? 'Hide group' : 'Hide', icon: svg(EyeOff), onSelect: hideSelection },
     { id: 'move', label: 'Move / Rotate', icon: svg(Move3d), keys: ['M'], on: moveUI().on, state: onOff(moveUI().on), title: 'the gizmo on the instance: rods move, rings turn, the orb moves in XY\nalt while dragging: free; esc puts it back', onSelect: () => toggleMove() },
     { id: 'copy', label: 'Duplicate', icon: svg(CopyPlus), keys: ['⌘D'], title: 'a copy of the instance beside it', onSelect: duplicate },
+    ...(splitTarget() ? [{ id: 'split', label: 'Split out', icon: svg(Ungroup), keys: ['E'], title: 'this part into an instance of its own, where it is, to move alone', onSelect: splitOut }] : []),
     { id: 'remove', label: 'Remove', icon: svg(Trash2), keys: ['del'], title: 'remove the instance (ctrl-z brings it back)', onSelect: removeSelected },
     { id: 'deselect', label: 'Deselect', icon: svg(X), keys: ['esc'], onSelect: clearSelect },
   ]];

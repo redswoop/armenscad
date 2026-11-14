@@ -19,7 +19,9 @@
 #inst small.note { color:var(--dim); }
 #inst small.err { color:var(--bad); }
 #inst small[hidden] { display:none; }
-#inst-panel .cd-panel-foot button { padding:3px 8px; }
+#inst-panel .cd-panel-foot { flex-wrap:wrap; justify-content:flex-end; row-gap:6px; }   /* Split out joins Duplicate and Remove: a narrow slot takes two lines */
+#inst-panel .cd-panel-foot button { padding:3px 8px; white-space:nowrap; }
+#inst-panel .cd-panel-foot button[hidden] { display:none; }
 #inst-panel .cd-panel-foot button.icon { display:grid; place-items:center; padding:2px 5px; }
 #inst-panel .cd-panel-foot button.icon svg { width:calc(15px * var(--fs)); height:calc(15px * var(--fs)); }
 #inst-panel .cd-panel-foot button:disabled { opacity:.35; cursor:default; }
