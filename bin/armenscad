@@ -6,6 +6,7 @@
 #   armenscad notes <model-folder> [...]      viewer annotations (tools/notes)
 #   armenscad scene <model-folder>            the model's scene.json: placed copies of its parts (tools/scene)
 #             ... add <id> [field=value ...]  copy <from> <id> [field=value ...]  move <id> dx,dy,dz  rm <id>
+#             ... split <id> <part> [new-id]  that part out into its own instance, where it was (id: the part's name)
 #             ... set <id> field=value ...    fields: parts at rot scale mirror color material scratch; field= clears
 #             ... scad [--scratch]            write _scene.scad, the arrangement as plain OpenSCAD;  json  the resolved scene
 #   armenscad install                   put this script on PATH (~/.local/bin) and the lib in OpenSCAD's library folder
