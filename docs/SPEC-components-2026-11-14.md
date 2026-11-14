@@ -5,7 +5,7 @@ without `set` or cross-folder `use`, `armenscad scene`, the scene endpoints in `
 scene (one mesh per placed part, transform audit) and edits it by hand: the light-pipe gizmo on the selected instance
 (move along / turn about X, Y, Z about its centre, XY on the orb; `viewer/src/move.js`, maths in `core/transform.ts`),
 the Instance panel (typed at, rot, mirror, scale with its warning, colour, material, scratch, rename; `instance.js`),
-duplicate / remove, and undo / redo over every scene change including outside ones, hash-checked (`history.js`).
+duplicate / split out / remove, and undo / redo over every scene change including outside ones, hash-checked (`history.js`).
 Not in phase 0 yet: the check and export warning on a scaled instance (phase 2 brings both).
 Worked out with Armen on 2026-11-14 after a few weeks of daily use.
 Covers backlog items 1 and 2 in `docs/NOTES.md` (moving parts by hand, combined projects). Builds the ground
@@ -98,7 +98,11 @@ component boundary is ours, and it stays small:
 
 - `use`: the component, as a folder relative to this one (`.` = this model). Cross-folder `use` is what makes an
   assembly (phase 3).
-- `parts`: optional subset of the component's parts to show (default: all).
+- `parts`: optional subset of the component's parts to show (default: all). The part list in `viewer.json` is
+  the component's public surface for instancing, the way `@export` is for values: a scene may take any listed part
+  alone as its own instance, and nothing that is not a listed part. **Split out** (`e`, the rail, the Instance
+  panel; `armenscad scene <m> split <id> <part>`) pulls one part of an instance into an instance of its own with
+  the same placement, so nothing moves until it is dragged.
 - `set`: overrides of the component's **exported** values. Anything else is refused with an error.
 - `at` / `rot` / `scale` / `mirror`: mean exactly `translate(at) rotate(rot) mirror(mirror) scale(scale) part();`
   in OpenSCAD. A placement is a move *from where the `.scad` draws the part*, not from the origin, so parts drawn
