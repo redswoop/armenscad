@@ -4,10 +4,10 @@
 // (clipping plane), shading.js (shadows, edges, headlight), grid.js (the ground grid, the print bed), viewcube.js (the cube), rails.js (the two rails,
 // their trays, the tool card), hud.js (foldable panels, slot widths), theme.js (the page skin, text size),
 // api.js (server).
-import { MODEL, getModels, getState, connect, reportView } from './api.js';
+import { MODEL, getModels, getState, getScene, connect, reportView } from './api.js';
 import { app } from './app.js';
 import { fit, fitView, setOrtho, isOrtho, setPose, getPose, controls, orbitTo } from './scene.js';
-import { refresh, toggleGhost, hiddenParts, setHidden, getSelection, clearSelect, toggleCode } from './parts.js';
+import { refresh, setScene, toggleGhost, hiddenParts, setHidden, getSelection, clearSelect, toggleCode } from './parts.js';
 import * as annotate from './annotate.js';
 import { loadRefs, refs } from './refs.js';
 import * as overlay from './overlay.js';
@@ -82,10 +82,14 @@ controls.addEventListener('end', () => { clearTimeout(reportTimer); reportTimer 
 
 // ---------- live updates ----------
 connect({
-  open: () => getState().then((s) => { if (s.builtAt && (!app.state || s.builtAt !== app.state.builtAt)) refresh(s); }),
+  open: () => getState().then((s) => {
+    if (s.builtAt && (!app.state || s.builtAt !== app.state.builtAt)) refresh(s);
+    else if (app.state) getScene().then(setScene);    // a scene edit missed while the stream was down
+  }),
   building: () => { $('#status').textContent = 'rendering…'; },
   built: (s) => refresh(s),
   annotations: (d) => annotate.setDoc(d),
+  scene: (st) => setScene(st),         // scene.json changed (CLI, Claude, a hand edit, another tab): re-place, no rebuild
   view: (v) => {                       // someone (tools/notes view ...) asked every tab to look at this
     if (v.preset) fitView(v.preset);
     if (v.camera) setPose(v.camera);

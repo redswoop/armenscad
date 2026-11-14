@@ -1,12 +1,22 @@
-// Parts: loading the STLs the server built, the part list, hover/click picking, selection and the source panel.
+// Parts: loading the STLs the server built, placing them as the scene says, the part list, hover/click picking,
+// selection and the source panel.
+//
+// The scene (scene.json through the server's /scene; docs/SPEC-components-2026-11-14.md) is a list of placed parts,
+// each addressed instance.part. One mesh per placed part, keyed by that path; one STL geometry per part name, loaded
+// once and shared by every instance that shows it. A placement is a matrix (core/placement.ts, the same maths the
+// core and _scene.scad use), so moving an instance never reloads a mesh. With no scene.json the scene is one
+// instance at identity and the viewer looks as it always did: while there is one instance its id stays out of
+// the UI (the list, the tip, hiddenParts() all say the bare part name); with more the list is grouped by instance.
 // The list shows names and state only (failed, empty); triangle counts and build times are in the readout at the
 // foot of the render (bounds.js), for whatever is selected.
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { placementMatrix, scaled } from '../../core/placement.ts';
 import { app } from './app.js';
-import { MODEL, partUrl, refStlUrl, getSource } from './api.js';
-import { scene, group, canvas, fit, toNDC, raycast, bus } from './scene.js';
+import { MODEL, partUrl, refStlUrl, getSource, getScene } from './api.js';
+import { scene, group, canvas, fit, toNDC, raycast, bus, renderer } from './scene.js';
 import { token } from './tokens.js';
 import { renderParams, focusParams } from './params.js';
 import { createElement, Eye, EyeOff, ChevronDown } from 'lucide';
@@ -15,14 +25,129 @@ const $ = (s) => document.querySelector(s);
 const loader = new STLLoader();
 const EYE = createElement(Eye).outerHTML, EYE_OFF = createElement(EyeOff).outerHTML, CHEVRON = createElement(ChevronDown).outerHTML;
 const eye = (shown, title) => `<button class="eye" title="${title}">${shown ? EYE : EYE_OFF}</button>`;
-export const meshes = new Map();      // name -> mesh
+export const meshes = new Map();      // instance.part -> mesh
+const geos = new Map();               // part name -> { version, geo }: one STL, shared by every instance showing it
 let ghost = null;
+// paths (instance.part); a bare part name (stored before scenes) is read as that part in every instance
 const hidden = new Set(JSON.parse(localStorage.getItem(`hidden:${MODEL}`) ?? '[]'));
 
 async function loadMesh(url) {
   const geo = await loader.loadAsync(url);
   geo.computeVertexNormals();
   return geo;
+}
+
+// ---------- the scene ----------
+// sceneSt: the server's last /scene ({ hash, exists, scene, parts, errors }); a write names its hash as the base.
+// placed: the last scene that resolved without errors, so a bad hand edit shows its errors and keeps the parts
+// where they were; before any good one, the default scene built here (one instance at identity).
+let sceneSt = null, placed = null;
+export const sceneState = () => sceneSt;
+const partOf = (path) => path.slice(path.indexOf('.') + 1);
+function placedParts() {
+  if (placed) return placed;
+  const id = MODEL.split('/').pop().replace(/[^A-Za-z0-9_-]/g, '_') || 'model';     // as core/scene.ts defaultScene
+  return (app.state?.parts ?? []).map((p) => ({ path: `${id}.${p.name}`, instance: id, part: p.name, call: p.call, color: p.color,
+    material: null, group: p.group, reference: p.reference, scratch: false, at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], mirror: [0, 0, 0] }));
+}
+const instanceIds = () => [...new Set(placedParts().map((p) => p.instance))];
+export const multiInstance = () => instanceIds().length > 1;
+// what the UI calls a placed part: the bare part name while there is one instance, else instance.part
+export const labelOf = (path) => (multiInstance() ? path : partOf(path));
+// a name from outside (debug, a pushed view, an old note): a path, or a bare part name meaning it in every instance
+const pathsFor = (name) => (name.includes('.') ? [name] : placedParts().filter((p) => p.part === name).map((p) => p.path));
+// an instance's placement as a matrix (annotate.js puts a note's local points back where the instance is now)
+export function instanceMatrix(id) {
+  const p = placedParts().find((x) => x.instance === id);
+  return p ? new THREE.Matrix4().fromArray(placementMatrix(p)) : null;
+}
+
+// Looks: an instance's material (scene.json "material") picks a preset; anything else is the default, matte PLA.
+// The colour is the instance's, else the part's (the server resolves that).
+const MATERIALS = {
+  pla: { roughness: 0.55, metalness: 0.05 },
+  petg: { roughness: 0.2, metalness: 0.05 },
+  metal: { roughness: 0.3, metalness: 0.85, env: true },        // die-cast: needs something to reflect
+  translucent: { roughness: 0.25, metalness: 0, opacity: 0.45 },
+};
+let envMap = null;
+const roomEnv = () => (envMap ??= new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture);
+function dress(m, pl) {
+  const mat = m.material, name = MATERIALS[pl.material] ? pl.material : 'pla', look = MATERIALS[name];
+  mat.color.set(pl.color);
+  if (mat.userData.preset !== name) {
+    mat.userData.preset = name;
+    mat.roughness = look.roughness; mat.metalness = look.metalness;
+    mat.envMap = look.env ? roomEnv() : null; mat.envMapIntensity = 0.8;
+    mat.transparent = look.opacity != null; mat.opacity = look.opacity ?? 1; mat.depthWrite = !mat.transparent;
+    mat.needsUpdate = true;
+  }
+  // polygonOffset pushes the surface back a hair so edge lines (shading.js) sit on top without z-fighting;
+  // a reference part (manifest `reference: true`, a presence mesh the design is fitted to) goes back further,
+  // so where its faces coincide with the design's the design wins instead of the two flickering as you orbit
+  mat.polygonOffsetFactor = mat.polygonOffsetUnits = pl.reference ? 3 : 1;
+}
+
+// One mesh per placed part: made, re-dressed, re-placed, or dropped. Synchronous, from the geometries loaded so far.
+function place() {
+  const list = placedParts(), paths = new Set(list.map((p) => p.path));
+  for (const [n, m] of meshes) if (!paths.has(n)) { group.remove(m); m.material.dispose(); meshes.delete(n); }
+  // hidden names from before scenes (bare part names) become paths once
+  const bare = [...hidden].filter((n) => !n.includes('.'));
+  if (bare.length && placed) { for (const n of bare) { hidden.delete(n); for (const q of pathsFor(n)) hidden.add(q); } saveHidden(); }
+  for (const pl of list) {
+    const built = app.state?.parts.find((p) => p.name === pl.part), g = geos.get(pl.part);
+    let m = meshes.get(pl.path);
+    if (!g) { if (m) m.visible = false; continue; }
+    if (!m) {
+      m = new THREE.Mesh(g.geo, new THREE.MeshStandardMaterial({ polygonOffset: true }));
+      m.matrixAutoUpdate = false;
+      meshes.set(pl.path, m); group.add(m);
+    } else if (m.geometry !== g.geo) m.geometry = g.geo;
+    m.userData.name = pl.path; m.userData.label = labelOf(pl.path); m.userData.part = built; m.userData.placed = pl;
+    dress(m, pl);
+    m.matrix.fromArray(placementMatrix(pl)); m.matrixWorldNeedsUpdate = true; m.updateMatrixWorld();
+    m.visible = !!built?.ok && !hidden.has(pl.path);
+  }
+  for (const g of geos.values()) if (g.old) { disposeGeo(g.old); delete g.old; }
+}
+// a geometry and what was built from it (the outline hull here, the edge lines in shading.js)
+function disposeGeo(geo) { for (const k of ['hull', 'edges']) geo.userData[k]?.dispose(); geo.dispose(); }
+
+// a scene from the server (GET /scene, or SSE 'scene' after the CLI, Claude or a hand edit): re-place, no mesh reload
+export function setScene(st) {
+  if (!st) return;
+  takeScene(st);
+  if (!app.state) return;
+  place();
+  if (app.selected && !meshes.has(app.selected)) app.selected = null;
+  if (selectedGroup && !groupNames().includes(selectedGroup)) selectedGroup = null;
+  renderPartList(); paint();
+  bus.dispatchEvent(new Event('parts'));
+}
+function takeScene(st) {
+  sceneSt = st;
+  if (!st.errors?.length) placed = st.parts;
+  console.log(`[viewer] scene ${st.hash}${st.exists ? '' : ' (default)'} ${st.parts?.length ?? 0} placed${st.errors?.length ? `, ${st.errors.length} error(s)` : ''}`);
+  showStatus();
+}
+// Re-place one instance at once, without writing (a drag in progress): fields over what the scene says.
+// The write is api.js patchInstance(id, fields, sceneState().hash); its SSE 'scene' lands through setScene.
+export function previewInstance(id, fields) {
+  for (const m of meshes.values()) {
+    if (m.userData.placed?.instance !== id) continue;
+    m.matrix.fromArray(placementMatrix({ ...m.userData.placed, ...fields })); m.matrixWorldNeedsUpdate = true; m.updateMatrixWorld();
+  }
+  bus.dispatchEvent(new Event('placed'));
+}
+
+// build errors and scene.json errors, in the same two places: the status line and the log
+function showStatus() {
+  const s = app.state, errs = sceneSt?.errors ?? [];
+  if (!s) { if (errs.length) $('#status').textContent = `scene.json: ${errs[0]}`; return; }
+  const build = s.error ? `error: ${s.error}` : `built ${new Date(s.builtAt).toLocaleTimeString()} in ${(s.buildMs / 1000).toFixed(1)}s`;
+  $('#status').textContent = errs.length ? `${build} · scene.json: ${errs.length === 1 ? errs[0] : `${errs.length} errors, see the log`}` : build;
+  $('#log').textContent = [...errs.map((e) => `scene.json: ${e}`), ...s.parts.map((p) => p.log).filter(Boolean)].join('\n') || 'no warnings';
 }
 
 export const visibleMeshes = () => [...meshes.values()].filter((m) => m.visible);
@@ -34,32 +159,24 @@ export async function refresh(s) {
   console.log('[viewer] refresh, built', s.builtAt, 'overrides', JSON.stringify(s.overrides));
   // a breadcrumb: the model's path in the workspace (toy / assembly), then the file; it opens the model picker
   $('#title').innerHTML = `${MODEL.split('/').map((x) => `<span>${x}</span>`).join('<i>/</i>')}<i>/</i><span class="file">${s.file ?? '?'}</span><b>▾</b>`;
-  $('#status').textContent = s.error ? `error: ${s.error}` : `built ${new Date(s.builtAt).toLocaleTimeString()} in ${(s.buildMs / 1000).toFixed(1)}s`;
   const ovKeys = Object.keys(s.overrides ?? {});
   $('#override-banner').hidden = ovKeys.length === 0;
   $('#override-banner').textContent = ovKeys.length ? `⚠ overrides active: ${ovKeys.map((k) => `${k}=${s.overrides[k]}`).join(', ')} — click Reset to return to the file` : '';
-  $('#log').textContent = s.parts.map((p) => p.log).filter(Boolean).join('\n') || 'no warnings';
+  showStatus();
   renderParams(s.params);
-  // remove parts that vanished
-  for (const [n, m] of meshes) if (!s.parts.find((p) => p.name === n)) { group.remove(m); meshes.delete(n); }
+  // the scene too: viewer.json (part names, colours) may have changed with the build
+  const st = await getScene().catch((e) => ({ errors: [`cannot read the scene: ${e.message ?? e}`], parts: [] }));
+  // each part's STL once, whatever number of instances show it; the old geometry goes once every mesh has the new
   await Promise.all(s.parts.map(async (p) => {
-    let m = meshes.get(p.name);
-    if (m && m.userData.version === p.version) return;
-    if (!p.ok) { if (m) m.visible = false; return; }
+    const g = geos.get(p.name);
+    if (!p.ok || (g && g.version === p.version)) return;
     const geo = await loadMesh(partUrl(p.name, p.version));
-    if (m) { m.geometry.dispose(); m.geometry = geo; }
-    else {
-      // polygonOffset pushes the surface back a hair so edge lines (shading.js) sit on top without z-fighting;
-      // a reference part (manifest `reference: true`, a presence mesh the design is fitted to) goes back further,
-      // so where its faces coincide with the design's the design wins instead of the two flickering as you orbit
-      const po = p.reference ? 3 : 1;
-      m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.55, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: po, polygonOffsetUnits: po }));
-      m.userData.name = p.name; meshes.set(p.name, m); group.add(m);
-    }
-    m.userData.version = p.version; m.userData.part = p;
-    m.material.polygonOffsetFactor = m.material.polygonOffsetUnits = p.reference ? 3 : 1;
-    m.visible = !hidden.has(p.name);
+    geos.set(p.name, { version: p.version, geo, old: g?.geo });
   }));
+  const gone = [...geos].filter(([n]) => !s.parts.some((p) => p.name === n));
+  for (const [n] of gone) geos.delete(n);
+  takeScene(st); place();
+  for (const [, g] of gone) disposeGeo(g.geo);
   if (s.reference && !ghost) {
     const geo = await loadMesh(refStlUrl());
     ghost = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: +$('#ghost-op').value, depthWrite: false }));
@@ -81,15 +198,16 @@ function renderPartList() {
   const ul = $('#parts'); ul.innerHTML = '';
   const groups = new Map();                         // group name -> [parts], in first-seen order
   const order = [];                                 // top-level rows: a part or a group name
-  for (const p of app.state.parts) {
+  for (const p of rows()) {
     if (!p.group) { order.push(p); continue; }
     if (!groups.has(p.group)) { groups.set(p.group, []); order.push(p.group); }
     groups.get(p.group).push(p);
   }
   const partRow = (p, inGroup) => {
     const li = document.createElement('li');
-    li.className = (p.ok || p.empty ? '' : 'bad ') + (p.empty ? 'empty ' : '') + (app.selected === p.name ? 'selected ' : '') + (inGroup ? 'member ' : '') + (hidden.has(p.name) ? 'off' : '');
-    li.innerHTML = `<span class="sw" style="background:${p.color}"></span><span class="n">${p.name}</span>${p.ok ? '' : `<span class="t">${p.empty ? 'empty' : 'failed'}</span>`}${eye(!hidden.has(p.name), hidden.has(p.name) ? 'show' : 'hide')}`;
+    li.className = (p.ok || p.empty ? '' : 'bad ') + (p.empty ? 'empty ' : '') + (app.selected === p.name ? 'selected ' : '') + (inGroup ? 'member ' : '') + (hidden.has(p.name) ? 'off' : '') + (p.scratch ? ' scratch' : '');
+    if (p.scratch) li.title = SCRATCH;
+    li.innerHTML = `<span class="sw" style="background:${p.color}"></span><span class="n">${p.label}</span>${p.badge}${p.ok ? '' : `<span class="t">${p.empty ? 'empty' : 'failed'}</span>`}${eye(!hidden.has(p.name), hidden.has(p.name) ? 'show' : 'hide')}`;
     li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); toggle(p.name); renderPartList(); };
     li.onclick = () => select(p.name);
     return li;
@@ -100,8 +218,10 @@ function renderPartList() {
     const shown = members.filter((p) => !hidden.has(p.name)).length;
     const bad = members.filter((p) => !p.ok && !p.empty).length;
     const li = document.createElement('li');
-    li.className = 'group ' + (bad ? 'bad ' : '') + (selectedGroup === name ? 'selected ' : '') + (folded.has(name) ? 'folded ' : '') + (shown === 0 ? 'off' : shown < members.length ? 'some' : '');
-    li.innerHTML = `<span class="fold" title="fold / unfold">${CHEVRON}</span><span class="n">${name}</span>${bad ? `<span class="t">${bad} failed</span>` : ''}${eye(shown > 0, 'show / hide the whole group')}`;
+    const inst = members[0].byInstance ? members[0] : null;      // a group that is one instance: its scratch and scale cues
+    li.className = 'group ' + (bad ? 'bad ' : '') + (selectedGroup === name ? 'selected ' : '') + (folded.has(name) ? 'folded ' : '') + (shown === 0 ? 'off' : shown < members.length ? 'some' : '') + (inst?.scratch ? ' scratch' : '');
+    if (inst?.scratch) li.title = SCRATCH;
+    li.innerHTML = `<span class="fold" title="fold / unfold">${CHEVRON}</span><span class="n">${name}</span>${inst?.instBadge ?? ''}${bad ? `<span class="t">${bad} failed</span>` : ''}${eye(shown > 0, 'show / hide the whole group')}`;
     li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); setGroupHidden(name, shown === members.length); renderPartList(); };
     li.querySelector('.fold').onclick = (e) => {
       e.stopPropagation();
@@ -114,19 +234,48 @@ function renderPartList() {
     if (!folded.has(name)) for (const p of members) ul.appendChild(partRow(p, true));
   }
 }
+// The list's rows: one per placed part, its built part's state (ok, tris, ...) under its path and label. While the
+// scene has one instance the groups are the manifest's; with more, one group per instance (its id), and a scaled
+// or scratch instance says so on its header; with one, on each of its rows.
+const SCRATCH = 'scratch: shown here, left out of _scene.scad, the check and the export';
+function scaleBadge(pl) {
+  if (!scaled(pl)) return '';
+  const s = pl.scale.every((v) => v === pl.scale[0]) ? `×${pl.scale[0]}` : `×${pl.scale.join('/')}`;
+  return `<span class="badge" title="scaled ${s}: its clearances scale too, and a print would be wrong; for a real size change, use a value">${s}</span>`;
+}
+function rows() {
+  const byInstance = multiInstance(), out = [];
+  for (const pl of placedParts()) {
+    const built = app.state.parts.find((p) => p.name === pl.part);
+    if (!built) continue;
+    const badge = scaleBadge(pl);
+    out.push({ ...built, name: pl.path, label: labelOf(pl.path), color: pl.color, group: byInstance ? pl.instance : pl.group,
+               scratch: pl.scratch, byInstance, badge: byInstance ? '' : badge, instBadge: badge });
+  }
+  return out;
+}
+function groupMap() {      // group key -> member paths, in list order
+  const byInstance = multiInstance(), out = new Map();
+  for (const pl of placedParts()) {
+    const g = byInstance ? pl.instance : pl.group;
+    if (g) { if (!out.has(g)) out.set(g, []); out.get(g).push(pl.path); }
+  }
+  return out;
+}
+const saveHidden = () => localStorage.setItem(`hidden:${MODEL}`, JSON.stringify([...hidden]));
 function toggle(name) {
   hidden.has(name) ? hidden.delete(name) : hidden.add(name);
-  localStorage.setItem(`hidden:${MODEL}`, JSON.stringify([...hidden]));
+  saveHidden();
   const m = meshes.get(name); if (m) m.visible = !hidden.has(name);
   bus.dispatchEvent(new Event('visibility'));   // bounds.js re-measures
 }
 export const getSelection = () => ({ part: app.selected, group: selectedGroup });
-export const groupMembers = (g) => app.state?.parts.filter((p) => p.group === g).map((p) => p.name) ?? [];
-export const groupNames = () => [...new Set((app.state?.parts ?? []).map((p) => p.group).filter(Boolean))];
+export const groupMembers = (g) => groupMap().get(g) ?? [];
+export const groupNames = () => [...groupMap().keys()];
 function setGroupHidden(g, hide) {
   for (const n of groupMembers(g)) if (hidden.has(n) !== hide) toggle(n);
 }
-export const hiddenParts = () => [...hidden];
+export const hiddenParts = () => [...hidden].map((n) => (n.includes('.') ? labelOf(n) : n));
 // Hide on the rail: the selected part, or every member of the selected group; the selection goes
 export function hideSelection() {
   if (app.selected) { if (!hidden.has(app.selected)) toggle(app.selected); }
@@ -135,8 +284,8 @@ export function hideSelection() {
 }
 // show exactly this set of parts as hidden (a pushed view); does not touch what is remembered per model
 export function setHidden(names) {
-  const want = new Set(names);
-  for (const [n, m] of meshes) m.visible = !want.has(n);
+  const want = new Set(names.flatMap(pathsFor));
+  for (const [n, m] of meshes) m.visible = !!m.userData.part?.ok && !want.has(n);
   bus.dispatchEvent(new Event('visibility'));
 }
 
@@ -154,10 +303,11 @@ $('#ghost-op').oninput = (e) => { if (ghost) ghost.material.opacity = +e.target.
 
 // ---------- selection + source ----------
 export async function select(name) {
+  name = meshes.has(name) ? name : pathsFor(name)[0] ?? name;     // a bare part name (debug, old callers): its first instance
   app.selected = name; selectedGroup = null;
   paint(); renderPartList();
   bus.dispatchEvent(new Event('select'));
-  const p = app.state.parts.find((x) => x.name === name);
+  const p = app.state.parts.find((x) => x.name === partOf(name));
   source = null; showCode();
   if (!p?.module) return;
   const mods = await getSource(p.module);
@@ -274,10 +424,14 @@ bus.addEventListener('skin', () => { SEL.setHex(token('--select', '#6ea8fe').hex
 SEL.setHex(token('--select', '#6ea8fe').hex);
 
 // ---------- hover / click picking ----------
-// ndc -> { name, point } of the nearest visible part under it, or null
+// ndc -> the nearest visible placed part under it, or null: { name: its path, label, instance, part, point: world mm,
+// local: the same point in the instance's own frame (where the .scad draws the part) }
 export function pickPart(ndc) {
   const hit = raycast(ndc, visibleMeshes());
-  return hit ? { name: hit.object.userData.name, point: hit.point } : null;
+  if (!hit) return null;
+  const o = hit.object, pl = o.userData.placed;
+  return { name: o.userData.name, label: o.userData.label, instance: pl.instance, part: pl.part, point: hit.point,
+           local: hit.point.clone().applyMatrix4(o.matrixWorld.clone().invert()) };
 }
 let downAt = null;
 canvas.addEventListener('pointermove', (ev) => {
@@ -286,7 +440,7 @@ canvas.addEventListener('pointermove', (ev) => {
   canvas.style.cursor = h ? 'pointer' : '';
   tip.hidden = !h;
   if (h) { tip.style.left = ev.offsetX + 14 + 'px'; tip.style.top = ev.offsetY + 14 + 'px';
-    tip.textContent = `${h.name}  (${h.point.x.toFixed(1)}, ${h.point.y.toFixed(1)}, ${h.point.z.toFixed(1)})`; }
+    tip.textContent = `${h.label}  (${h.point.x.toFixed(1)}, ${h.point.y.toFixed(1)}, ${h.point.z.toFixed(1)})`; }
 });
 canvas.addEventListener('pointerleave', () => { if (hovered) { hovered = null; paint(); } });
 canvas.addEventListener('pointerdown', (ev) => { downAt = [ev.clientX, ev.clientY]; });

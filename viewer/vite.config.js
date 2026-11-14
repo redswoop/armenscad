@@ -13,7 +13,7 @@ export default defineConfig({
     port: parseInt(process.env.UI_PORT ?? '5180', 10),      // tools/browse picks these when the defaults are busy
     strictPort: true,
     host: process.env.HOST ?? '127.0.0.1',   // HOST=0.0.0.0 to open it to the LAN
-    fs: cyberdos ? { allow: ['..', cyberdos] } : undefined,
+    fs: { allow: ['..', ...(cyberdos ? [cyberdos] : [])] },   // '..': the viewer imports the core's placement maths
     proxy: {
       '/api': `http://127.0.0.1:${process.env.PORT ?? '3003'}`,
     },

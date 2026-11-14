@@ -26,6 +26,13 @@ export const deleteAnnotation = (id) => fetch(`${API}/annotations/${id}`, { meth
 export const putOverlay = (id, o) => send(`${API}/annotations/overlays/${id}`, 'PUT', o);
 export const deleteOverlay = (id) => fetch(`${API}/annotations/overlays/${id}`, { method: 'DELETE' }).then(j);
 
+// scene.json, through the core: GET { hash, exists, scene, parts, errors }; parts is the flat placed list
+// (instance.part with at/rot/mirror/scale). A write names the hash it was based on (base) and resolves with
+// { ok, hash }, or { error, hash } when someone else wrote first (409: reload, reapply) or { error, errors } (400).
+export const getScene = () => fetch(`${API}/scene`).then(j);
+export const putScene = (scene, base) => send(`${API}/scene`, 'PUT', { base, scene });
+export const patchInstance = (id, fields, base) => send(`${API}/scene/${id}`, 'PATCH', { ...fields, base });   // null clears a field
+
 // view: PUT reports what this tab shows; POST asks every tab to move (also what tools/notes view does)
 export const reportView = (camera, hidden) => send(`${API}/view`, 'PUT', { camera, hidden });
 export const pushView = (v) => send(`${API}/view`, 'POST', v);
@@ -33,8 +40,8 @@ export const pushView = (v) => send(`${API}/view`, 'POST', v);
 // ---------- live updates ----------
 // SSE with a watchdog: the server heartbeats every 15 s; if nothing arrives for
 // 45 s the connection is dead behind the proxy, so drop it and reconnect.
-// handlers: { open, building, built, annotations, view } keyed by event name; each gets the parsed data.
-const EVENTS = ['hello', 'ping', 'building', 'built', 'annotations', 'view'];
+// handlers: { open, building, built, annotations, view, scene } keyed by event name; each gets the parsed data.
+const EVENTS = ['hello', 'ping', 'building', 'built', 'annotations', 'view', 'scene'];
 let es, lastMsg = 0, handlers = {};
 export function connect(h) {
   handlers = h;
