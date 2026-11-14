@@ -73,6 +73,10 @@ async function getModel(name) {
   if (!MODEL_RE.test(name) || SKIP.has(name.split('/')[0])) return null;
   const dir = path.join(ROOT, name);
   if (!(await exists(path.join(dir, 'viewer.json')))) return null;
+  // The await above lets a second first-request in: without this re-check both create a Model, the map keeps one, and
+  // the orphan keeps its watcher and builds into the same cache in parallel. Its openscad truncates a part's STL just
+  // as the live build stats it: one part "failed" (0 tris, empty log) at random (devastator/hip, 2026-11-13).
+  if (models.has(name)) return models.get(name);
   const m = new Model(name, dir);
   models.set(name, m);
   m.scheduleBuild();
