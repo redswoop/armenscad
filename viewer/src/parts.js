@@ -64,7 +64,7 @@ export function instanceMatrix(id) {
 
 // Looks: an instance's material (scene.json "material") picks a preset; anything else is the default, matte PLA.
 // The colour is the instance's, else the part's (the server resolves that).
-const MATERIALS = {
+export const MATERIALS = {
   pla: { roughness: 0.55, metalness: 0.05 },
   petg: { roughness: 0.2, metalness: 0.05 },
   metal: { roughness: 0.3, metalness: 0.85, env: true },        // die-cast: needs something to reflect

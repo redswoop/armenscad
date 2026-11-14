@@ -1,0 +1,31 @@
+/* instance.js: the Instance panel's rows. label | value | reset, a note or an error under the row */
+#inst { display:grid; gap:3px; padding-top:2px; }
+#inst .f { display:grid; grid-template-columns: calc(68px * var(--fs)) 1fr calc(24px * var(--fs)); gap:4px 6px; align-items:center; }
+#inst .f > label { font: calc(12px * var(--fs)) var(--mono); color:var(--dim); white-space:nowrap; }
+#inst .f.set > label { color:var(--fg); }
+#inst .f.set > label::after { content:' •'; color:var(--accent); }
+#inst .v { display:flex; gap:4px; align-items:center; min-width:0; }
+#inst .v3 > * { flex:1 1 0; min-width:0; }
+#inst input:not([type=checkbox]):not([type=color]), #inst select { width:100%; min-width:0; background:var(--well); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:3px 6px; font: calc(12px * var(--fs)) var(--mono); }
+#inst input.live { border-color:var(--accent); }
+#inst input[type=color] { flex:none; width:calc(34px * var(--fs)); height:calc(22px * var(--fs)); padding:0 2px; background:var(--well); border:1px solid var(--line); border-radius:4px; cursor:pointer; }
+#inst .hex { font: calc(12px * var(--fs)) var(--mono); }
+#inst .chk { display:flex; align-items:center; gap:6px; font-size:calc(12px * var(--fs)); color:var(--dim); cursor:pointer; }
+#inst button.tog { padding:1px 0; font: calc(12px * var(--fs)) var(--mono); }
+#inst button.rs { display:grid; place-items:center; padding:0; width:calc(22px * var(--fs)); height:calc(22px * var(--fs)); }
+#inst button.rs svg { width:62%; height:62%; }
+#inst button.rs:disabled { opacity:.25; cursor:default; }
+#inst small { grid-column: 1 / -1; font-size:calc(11.5px * var(--fs)); line-height:1.3; margin:-1px 0 3px; }
+#inst small.note { color:var(--dim); }
+#inst small.err { color:var(--bad); }
+#inst small[hidden] { display:none; }
+#inst-panel .cd-panel-foot button { padding:3px 8px; }
+#inst-panel .cd-panel-foot button.icon { display:grid; place-items:center; padding:2px 5px; }
+#inst-panel .cd-panel-foot button.icon svg { width:calc(15px * var(--fs)); height:calc(15px * var(--fs)); }
+#inst-panel .cd-panel-foot button:disabled { opacity:.35; cursor:default; }
+#edit-msg { font-size:calc(12px * var(--fs)); color:var(--dim); }
+#edit-msg.bad { color:var(--bad); }
+#edit-msg[hidden] { display:none; }
+:root[data-theme="cyber"] #inst .f > label, :root[data-theme="cyber"] #edit-msg { letter-spacing:0.04em; }
+#inst-panel { flex:0 0 auto; max-height:60%; }
+#inst-panel[hidden] { display:none; }

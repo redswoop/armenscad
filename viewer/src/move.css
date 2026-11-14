@@ -1,0 +1,4 @@
+/* move.js: the readout beside the pointer while the gizmo drags (as section.js's #gizmo-label) */
+#move-label { position:absolute; pointer-events:none; background:#000c; color:var(--warn); padding:3px 8px; border-radius:5px; font: calc(12px * var(--fs)) var(--mono); white-space:pre; z-index:5; }
+#move-label[hidden] { display:none; }
+:root[data-theme="cyber"] #move-label { border-radius:0; clip-path:var(--slant); padding-left:10px; padding-right:10px; }

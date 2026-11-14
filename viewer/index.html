@@ -33,6 +33,7 @@
         <header id="titlebar">
           <button id="title" title="switch model"></button>
           <div id="status" class="muted">connecting…</div>
+          <div id="edit-msg" hidden></div>
           <div id="override-banner" hidden></div>
         </header>
         <section class="cd-panel" data-fold="parts">
@@ -97,6 +98,11 @@
         </div>
       </div>
       <aside class="cd-slot" data-side="right" id="right">
+        <section class="cd-panel" data-fold="instance" id="inst-panel" hidden>
+          <header class="cd-panel-head"><span class="cd-panel-title">Instance</span><span class="muted" id="inst-id"></span></header>
+          <div class="cd-panel-body"><div id="inst"></div></div>
+          <footer class="cd-panel-foot"><button id="inst-undo" class="icon"></button><button id="inst-redo" class="icon"></button><span class="grow"></span><button id="inst-copy" title="a copy beside it (ctrl-d)">Duplicate</button><button id="inst-remove" title="remove this instance (delete)">Remove</button></footer>
+        </section>
         <section class="cd-panel" data-fold="parameters">
           <header class="cd-panel-head"><span class="cd-panel-title">Parameters</span><span class="muted" id="p-count"></span></header>
           <div class="p-tools"><input id="p-filter" placeholder="filter names, comments, sections" /><label id="p-sel-wrap" hidden><input type="checkbox" id="p-sel" checked /> selection only</label></div>
@@ -144,7 +150,10 @@
         <span><kbd>f</kbd> <kbd>o</kbd></span><span>fit, perspective / ortho</span>
         <span><kbd>s</kbd> <kbd>b</kbd> <kbd>g</kbd> <kbd>c</kbd></span><span>section, box, ghost, code of the selected part</span>
         <span><kbd>v</kbd> <kbd>p</kbd> <kbd>a</kbd> <kbd>t</kbd> <kbd>k</kbd></span><span>select, pen, arrow, label, points</span>
-        <span><kbd>esc</kbd></span><span>back out: tool, section pick, selection</span>
+        <span><kbd>esc</kbd></span><span>back out: tool, section pick, selection, a drag</span>
+        <span><kbd>m</kbd></span><span>move gizmo on the selection; alt while dragging: free</span>
+        <span><kbd>ctrl</kbd> <kbd>z</kbd> / <kbd>⇧</kbd></span><span>undo / redo scene changes</span>
+        <span><kbd>ctrl</kbd> <kbd>d</kbd> <kbd>del</kbd></span><span>duplicate, remove the instance</span>
       </div>
     </div>
   </div>

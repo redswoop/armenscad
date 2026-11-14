@@ -20,6 +20,7 @@ import { installSkinPicker } from './theme.js';
 import { home } from './viewcube.js';
 import './hud.js';
 import { toggleAnnotate } from './rails.js';
+import { editKey } from './instance.js';
 
 const $ = (s) => document.querySelector(s);
 document.title = MODEL ? `${MODEL} · scad viewer` : 'scad viewer';
@@ -64,6 +65,7 @@ addEventListener('keydown', (e) => {
   // Esc with the plain pointer and a part or group selected: let go of it (notes and tools take Esc otherwise)
   if (e.key === 'Escape' && annotate.getTool() === 'select' && (getSelection().part || getSelection().group)) { clearSelect(); return; }
   if (annotate.handleKey(e)) { e.preventDefault(); return; }
+  if (editKey(e)) { e.preventDefault(); return; }
   const digit = !e.metaKey && !e.altKey && !e.shiftKey && e.code.match(/^(?:Digit|Numpad)(\d)$/)?.[1];
   const v = digit && VIEW_KEYS[digit];
   if (v) { typeof v === 'function' ? v() : orbitTo(v); e.preventDefault(); return; }
