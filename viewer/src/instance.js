@@ -1,6 +1,9 @@
 // The Instance panel (right slot, above Parameters): the selected instance's placement and looks as scene.json has
 // them, typed. A field saves on Enter or on leaving it (Esc puts it back); ↺ clears it to its default; the server's
 // refusal shows under the field. While the gizmo drags, at and rot show the live numbers.
+// Below them, the instance's values: what its folder's .scad exports (core/source.ts parseExports), each against
+// its default. Typing one writes scene.json "set" and rebuilds that instance's parts only; ↺ goes back to the
+// default. A long unmarked list shows the marked and the set ones, with a box to bring up any other by name.
 // Also copy, remove and rename, from here, the rail (rails.js) and the keys (editKey, called by main.js):
 //   ctrl/cmd-z, shift-ctrl/cmd-z   undo, redo (edits.js; every scene change this session, outside ones too)
 //   ctrl/cmd-d                     duplicate the selected instance: next free id, moved along X, selected after
@@ -13,12 +16,12 @@ import { createElement, RotateCcw, Undo2, Redo2 } from 'lucide';
 import { history, selectedInstance, instanceData, sceneOk, say, undo, redo } from './edits.js';
 import { dragPreview, toggleMove, moveUI } from './move.js';
 import { MATERIALS, select, selectGroup, clearSelect, multiInstance, setScene, sceneState, meshes, getSelection, moveHidden } from './parts.js';
-import { getScene } from './api.js';
+import { getScene, getExports } from './api.js';
 import { app } from './app.js';
 import { bus } from './scene.js';
 import { moveNotes } from './annotate.js';
 import { moveBy, niceStep } from '../../core/transform.ts';
-import { splitInstance, freeId } from '../../core/scene.ts';
+import { splitInstance, freeId, parseValue } from '../../core/scene.ts';
 import * as THREE from 'three';
 import './instance.css';
 
@@ -45,7 +48,9 @@ function build(id) {
     <div class="f" data-f="scale"><label>scale</label><div class="v"><input data-k="scale" inputmode="decimal" spellcheck="false" title="one factor, or x, y, z"></div>${reset('scale')}<small class="note">${SCALE_NOTE}</small><small class="err" hidden></small></div>
     <div class="f" data-f="color"><label>color</label><div class="v"><input type="color" data-k="color"><span class="hex"></span></div>${reset('color')}<small class="err" hidden></small></div>
     <div class="f" data-f="material"><label>material</label><div class="v"><select data-k="material"><option value="">default (matte PLA)</option>${mats}</select></div>${reset('material')}<small class="err" hidden></small></div>
-    <div class="f" data-f="scratch"><label>scratch</label><div class="v"><label class="chk" title="shown here, left out of _scene.scad, the check and the export"><input type="checkbox" data-k="scratch"> only for looking</label></div>${reset('scratch')}<small class="err" hidden></small></div>`;
+    <div class="f" data-f="scratch"><label>scratch</label><div class="v"><label class="chk" title="shown here, left out of _scene.scad, the check and the export"><input type="checkbox" data-k="scratch"> only for looking</label></div>${reset('scratch')}<small class="err" hidden></small></div>
+    <div id="inst-vals"></div>`;
+  asked = new Set();
   for (const inp of box.querySelectorAll('input[data-k]:not([type]), input[inputmode]')) {
     inp.onchange = () => commitText(inp);
     inp.onkeydown = (e) => {
@@ -95,6 +100,64 @@ function fill(force = false) {
   $('#inst-split').hidden = !splitTarget();
   $('#inst-undo').title = history.canUndo ? `undo: ${history.peek('undo').label} (ctrl-z)` : 'nothing to undo';
   $('#inst-redo').title = history.canRedo ? `redo: ${history.peek('redo').label} (shift-ctrl-z)` : 'nothing to redo';
+  fillValues();
+}
+
+// ---------- values ----------
+let exportsSt = null, asked = new Set();     // asked: unmarked values brought up by name for this instance
+async function loadExports() { exportsSt = await getExports(); if (shown) fillValues(); }
+bus.addEventListener('parts', loadExports);   // a build may follow an edit of a .scad: its values may have changed
+const unquote = (v) => String(v).replace(/^"|"$/g, '');
+function fillValues() {
+  const el = $('#inst-vals'); if (!el) return;
+  if (el.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;    // being typed in
+  const id = shown, inst = instanceData(id), rel = exportsSt?.targets?.[id], e = rel ? exportsSt.components[rel] : undefined;
+  if (!inst || !exportsSt) { el.innerHTML = ''; if (!exportsSt) loadExports(); return; }
+  const from = rel === '.' ? 'this model' : rel;
+  if (!e) { el.innerHTML = rel ? `<div class="vh">values<span class="muted">${esc(from)} has no .scad of its own</span></div>` : ''; return; }
+  const set = inst.set ?? {};
+  const all = e.only || e.values.length <= 12;
+  const rows = e.values.filter((v) => all || v.marked || v.name in set || asked.has(v.name));
+  const rest = e.values.filter((v) => !rows.includes(v));
+  const control = (v) => {
+    const cur = v.name in set ? set[v.name] : undefined, isBool = /^(true|false)$/.test(v.value);
+    const opts = v.choices ?? (isBool ? [true, false] : null);
+    if (opts) {
+      const now = String(cur ?? unquote(v.value));
+      return `<select data-n="${esc(v.name)}">${opts.map((o) => `<option ${String(o) === now ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    }
+    const txt = cur === undefined ? '' : typeof cur === 'string' ? cur : JSON.stringify(cur);
+    return `<input data-n="${esc(v.name)}" spellcheck="false" autocomplete="off" value="${esc(txt)}" placeholder="${esc(unquote(v.value))}">`;
+  };
+  el.innerHTML = `<div class="vh">values<span class="muted">${esc(from)}${e.only ? '' : rows.length < e.values.length ? ` · ${rows.length} of ${e.values.length}` : ''}</span></div>`
+    + rows.map((v) => `<div class="f val${v.name in set ? ' set' : ''}" data-f="set:${esc(v.name)}"><label title="${esc([v.name, v.doc, v.range ? `[${v.range.join(':')}]` : '', `default ${v.value}`, v.pose ? 'pose' : ''].filter(Boolean).join(' · '))}">${esc(v.name)}</label><div class="v">${control(v)}</div><button class="rs small" data-vreset="${esc(v.name)}" title="back to the default (${esc(v.value)})" ${v.name in set ? '' : 'disabled'}>${svg(RotateCcw)}</button><small class="err" hidden></small></div>`).join('')
+    + (rest.length ? `<div class="f val more"><label>more</label><div class="v"><input id="inst-val-add" list="inst-val-names" placeholder="${rest.length} more: type a name" spellcheck="false" autocomplete="off"><datalist id="inst-val-names">${rest.map((v) => `<option value="${esc(v.name)}">`).join('')}</datalist></div><span></span></div>` : '');
+  const byName = Object.fromEntries(e.values.map((v) => [v.name, v]));
+  for (const c of el.querySelectorAll('[data-n]')) {
+    c.onchange = () => commitValue(byName[c.dataset.n], c.value);
+    if (c.tagName === 'INPUT') c.onkeydown = (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); c.blur(); }
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); c.onchange = null; c.blur(); fillValues(); }
+    };
+  }
+  for (const b of el.querySelectorAll('[data-vreset]')) b.onclick = () => commitValue(byName[b.dataset.vreset], '');
+  const add = el.querySelector('#inst-val-add');
+  if (add) add.onchange = () => { if (byName[add.value.trim()]) { asked.add(add.value.trim()); add.blur(); fillValues(); el.querySelector(`[data-n="${CSS.escape(add.value.trim())}"]`)?.focus(); } };
+}
+// typed text -> the value: a default that is a string stays a string (mixmaster, not "mixmaster"); anything else
+// is read as JSON where it parses (1.3, true, [1, 2]). Empty, or the default itself, clears the value.
+async function commitValue(v, text) {
+  const id = shown, inst = instanceData(id); if (!id || !inst || !v) return;
+  const isStr = /^"[^"]*"$/.test(v.value), t = String(text).trim();
+  const val = t === '' || t === unquote(v.value) ? undefined : isStr ? t : parseValue(t);
+  const set = { ...(inst.set ?? {}) };
+  if (val === undefined) delete set[v.name]; else set[v.name] = val;
+  if (JSON.stringify(set) === JSON.stringify(inst.set ?? {})) { document.activeElement?.blur?.(); fillValues(); return; }
+  const k = `set:${v.name}`; clearErr(k);
+  const r = await history.setFields(id, { set: Object.keys(set).length ? set : null }, `${val === undefined ? 'reset' : 'set'} ${v.name} of ${id}`);
+  document.activeElement?.blur?.();
+  fillValues();
+  if (!r.ok) refused(k, r);
 }
 
 // the panel follows the selection and every scene change
@@ -108,7 +171,7 @@ function sync() {
 for (const ev of ['select', 'parts', 'placed', 'history']) bus.addEventListener(ev, sync);
 
 // ---------- errors beside a field ----------
-const fieldOf = (msg) => (/\bid\b/.test(msg) ? 'id' : msg.match(/\b(at|rot|mirror|scale|color|material|scratch|parts)\b/)?.[1]);
+const fieldOf = (msg) => (/^set: /.test(msg) ? null : /\bid\b/.test(msg) ? 'id' : msg.match(/\b(at|rot|mirror|scale|color|material|scratch|parts)\b/)?.[1]);
 function showErr(k, msg) {
   const el = box.querySelector(`[data-f="${k}"] .err`);
   if (!el) { say(msg, true); return; }

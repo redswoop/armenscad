@@ -71,10 +71,25 @@ export const buildLog = (output: string) =>
 // tries again.
 // Afterwards the folder keeps only this build's keys and the previous build's (keep), so a reset to the last
 // values is instant and the cache cannot grow without bound.
-export interface BuildOptions { overrides?: Record<string, unknown>; keep?: Set<string>; fresh?: boolean }
-export async function buildParts(host: Host, m: LoadedModel, cacheDir: string, { overrides = {}, keep = new Set(), fresh = false }: BuildOptions = {}) {
+// overrides: the Parameters panel's try-out values, each a piece of OpenSCAD source. set: an instance's values
+// from scene.json, plain JSON (a string there is an OpenSCAD string); the parts built with one are named
+// <name>?<setKey>. only: build just these parts. prune: false leaves the cache alone (the caller prunes, when
+// several builds share the folder).
+export interface BuildOptions { overrides?: Record<string, unknown>; set?: Record<string, unknown> | null; only?: Set<string>; keep?: Set<string>; fresh?: boolean; prune?: boolean }
+// a set's identity: its entries in name order, as JSON
+export const setKey = (set: Record<string, unknown>) => JSON.stringify(Object.fromEntries(Object.entries(set).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
+// scene.json values as harness assignments: fmt() takes a string as source, so a string value gets its quotes here
+const literals = (set: Record<string, unknown>) => Object.fromEntries(Object.entries(set).map(([k, v]) => [k, typeof v === 'string' ? JSON.stringify(v) : v]));
+export async function pruneCache(host: Host, cacheDir: string, keep: Set<string>) {
+  for (const f of await host.files.list(cacheDir)) {
+    const stem = f.replace(/\.(scad|stl|json)$/, '');
+    if (!keep.has(stem)) await host.files.remove(path.join(cacheDir, f));
+  }
+}
+export async function buildParts(host: Host, m: LoadedModel, cacheDir: string, { overrides = {}, set = null, only, keep = new Set(), fresh = false, prune = true }: BuildOptions = {}) {
   const { files, builder } = host;
-  const defines = { ...(m.manifest.defines ?? {}), ...overrides };
+  const defines = { ...(m.manifest.defines ?? {}), ...overrides, ...(set ? literals(set) : {}) };
+  const suffix = set && Object.keys(set).length ? `?${setKey(set)}` : '';
   const digest = m.scadPath ? await sourceDigest(host, m.scadPath) : '';
   const running = new Map<string, Promise<CacheEntry>>();     // two parts with the same harness build once
   const render = async (key: string, text: string): Promise<CacheEntry> => {
@@ -96,21 +111,17 @@ export async function buildParts(host: Host, m: LoadedModel, cacheDir: string, {
     return e;
   };
   const keys = new Map<string, string>();             // part name -> key, to serve parts/<name>.stl
-  const parts: BuiltPart[] = await Promise.all(m.manifest.parts.map(async (p) => {
+  const parts: BuiltPart[] = await Promise.all(m.manifest.parts.filter((p) => !only || only.has(p.name)).map(async (p) => {
     const text = harness(m.scadPath!, defines, p.call);
     const key = cacheKey(builder.id, digest, text);
     keys.set(p.name, key);
     if (!running.has(key)) running.set(key, render(key, text));
     const e = await running.get(key)!;
     const mod = p.call.match(/^\s*(\w+)\s*\(/);
-    return { name: p.name, src: p.name, call: p.call, color: p.color ?? '#999999', group: p.group ?? null, reference: !!p.reference, module: mod?.[1] ?? null,
+    return { name: p.name, src: p.name + suffix, call: p.call, color: p.color ?? '#999999', group: p.group ?? null, reference: !!p.reference, module: mod?.[1] ?? null,
              ok: e.code === 0 && e.tris > 0, empty: /top level object is empty/i.test(e.output), tris: e.tris, ms: e.ms ?? null, key,
              log: buildLog(e.output), version: Date.now() };   // empty: built fine but produced nothing (a part that is off in this configuration)
   }));
-  const used = new Set([...keys.values()]);
-  for (const f of await files.list(cacheDir)) {
-    const stem = f.replace(/\.(scad|stl|json)$/, '');
-    if (!used.has(stem) && !keep.has(stem)) await files.remove(path.join(cacheDir, f));
-  }
+  if (prune) await pruneCache(host, cacheDir, new Set([...keys.values(), ...keep]));
   return { parts, keys, stl: (name: string) => (keys.has(name) ? path.join(cacheDir, `${keys.get(name)}.stl`) : null) };
 }

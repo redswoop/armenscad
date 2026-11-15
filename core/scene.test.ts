@@ -7,6 +7,7 @@ import {
 } from './index.ts';
 import { memHost } from './mem.ts';
 import { placedMatrix, applyMatrix } from './placement.ts';
+import { parseExports, setValue, parseValue, sceneExports, buildParts, loadModel, setKey } from './index.ts';
 
 const manifest: Manifest = {
   file: 'box.scad',
@@ -40,12 +41,11 @@ describe('validation', () => {
     const dotted = { ...manifest, parts: [{ name: 'a.b', call: 'x();' }] };
     expect(validateScene(scene(), dotted)[0]).toContain('part "a.b": a part name cannot contain a dot');
   });
-  test('set is refused as not supported yet; a use that names no folder says how to write one', () => {
+  test('a use that names no folder says how to write one', () => {
     const e = validateScene(scene({ id: 'k', use: '../knee', set: { arm_t: 1.3 } }, { id: 'j', use: 7 }), manifest);
-    expect(e).toHaveLength(3);
-    expect(e[0]).toContain('"set" (value overrides) is not supported yet');
-    expect(e[1]).toContain('"use": "../knee": not a folder beside this one');
-    expect(e[2]).toContain('"use" must be a folder, relative to this one');
+    expect(e).toHaveLength(2);
+    expect(e[0]).toContain('"use": "../knee": not a folder beside this one');
+    expect(e[1]).toContain('"use" must be a folder, relative to this one');
   });
   test('bad shapes', () => {
     const e = validateScene(scene({ id: 'a', at: [1, 2], rot: 'x', mirror: [1, 0, NaN], scale: -1, color: 'red', scratch: 1, pos: [0, 0, 0], parts: [] }), manifest);
@@ -57,7 +57,7 @@ describe('validation', () => {
       'instances[0] (a): scale must be a positive number or [x, y, z] of them (flip with mirror, not a negative scale)',
       'instances[0] (a): color must be "#rrggbb"',
       'instances[0] (a): scratch must be true or false',
-      'instances[0] (a): unknown field "pos" (an instance has id, use, parts, at, rot, scale, mirror, color, material, scratch)',
+      'instances[0] (a): unknown field "pos" (an instance has id, use, parts, set, at, rot, scale, mirror, color, material, scratch)',
     ]);
     expect(validateScene({ version: 2, instances: {}, rev: 3 }, manifest)).toEqual([
       'version must be 1, not 2', 'unknown key "rev" (a scene has version and instances)', 'instances must be a list',
@@ -72,7 +72,7 @@ describe('resolution', () => {
     expect(defaultScene('my.model').instances[0].id).toBe('my_model');
     const placed = resolveScene(defaultScene('m'), manifest);
     expect(placed.map((p) => p.path)).toEqual(['m.box', 'm.lid', 'm.brick']);
-    expect(placed[0]).toEqual({ path: 'm.box', instance: 'm', part: 'box', component: '.', src: 'box', inner: null, call: 'box();', color: '#4682b4', material: null, group: null,
+    expect(placed[0]).toEqual({ path: 'm.box', instance: 'm', part: 'box', component: '.', src: 'box', set: null, inner: null, call: 'box();', color: '#4682b4', material: null, group: null,
       reference: false, scratch: false, at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], mirror: [0, 0, 0] });
     expect(placed[2].color).toBe('#999999');
   });
@@ -116,7 +116,7 @@ describe('edits', () => {
     expect(parseField('scratch=true')).toEqual(['scratch', true]);
     expect(parseField('color=')).toEqual(['color', null]);
     expect(() => parseField('at=1,2')).toThrow('at wants x,y,z');
-    expect(() => parseField('set=1')).toThrow('not supported yet');
+    expect(() => parseField('set=1')).toThrow('a value is set as <id>.<name> <value>');
     expect(() => parseField('pos=1,2,3')).toThrow('unknown field "pos"');
   });
 });
@@ -210,8 +210,8 @@ describe('reading and writing through a host', () => {
     const st = await readScene(setup('{ nope').host, '/w/m');
     expect(st.errors[0]).toStartWith('scene.json is not JSON');
     expect(st.parts).toEqual([]);
-    const st2 = await readScene(setup('{"version":1,"instances":[{"id":"a","set":{}}]}').host, '/w/m');
-    expect(st2.errors[0]).toContain('not supported yet');
+    const st2 = await readScene(setup('{"version":1,"instances":[{"id":"a","set":{"nope":1}}]}').host, '/w/m');
+    expect(st2.errors[0]).toContain('set: this model has no value "nope"');
   });
   test('a write names its base hash; a stale one is refused and nothing is written', async () => {
     const { host, files } = setup();
@@ -334,5 +334,84 @@ describe('other folders', () => {
       { id: 'k', use: '../knee', parts: ['connector'] }, { id: 'thigh', use: '../knee', parts: ['thigh'] }]);
     const e = await writeSceneScad(host, '/w/robot').catch((e) => e);
     expect(e.message).toContain('_scene.scad is not written yet for a scene that uses other folders (k, thigh)');
+  });
+});
+
+describe('values', () => {
+  const src = [
+    '// ---- knee ring ----',
+    'arm_t  = 1.5;   // @export [1.0:0.1:2.0] flex-arm thickness; 1.5 printed best',
+    'ring_d = 9.6;   // internal',
+    'lug_w  = arm_t * 2 + 0.4;',
+    'who    = "scrapper";   // @export ["scrapper", "mixmaster"] which connector',
+    'bend   = 0;     // [0:15:135] @export @pose knee angle',
+    'show_all = true;',
+    'module thigh() {}',
+    'late = 3;',
+  ].join('\n');
+  test('unmarked file: every top-of-file value is exported; markers add range, choices, pose, doc', () => {
+    const e = parseExports(src, ['show_all']);
+    expect(e.only).toBe(false);
+    expect(e.values.map((v) => v.name)).toEqual(['arm_t', 'ring_d', 'lug_w', 'who', 'bend']);
+    expect(e.values[0]).toMatchObject({ value: '1.5', marked: true, pose: false, literal: true, range: [1, 0.1, 2], doc: 'flex-arm thickness; 1.5 printed best', section: 'knee ring' });
+    expect(e.values[2]).toMatchObject({ marked: false, literal: false });
+    expect(e.values[3]).toMatchObject({ value: '"scrapper"', choices: ['scrapper', 'mixmaster'], doc: 'which connector' });
+    expect(e.values[4]).toMatchObject({ pose: true, range: [0, 15, 135], doc: 'knee angle' });
+  });
+  test('@exports-only: only the marked ones, the rest internal', () => {
+    const e = parseExports(`// @exports-only\n${src}`);
+    expect(e.only).toBe(true);
+    expect(e.values.map((v) => v.name)).toEqual(['arm_t', 'who', 'bend']);
+    expect(e.internal).toEqual(['ring_d', 'lug_w', 'show_all']);
+  });
+
+  const kneeJson = JSON.stringify({ file: 'knee.scad', defines: { show_all: false }, parts: [{ name: 'thigh', call: 'thigh();' }, { name: 'connector', call: 'connector();' }] });
+  const world = (robot: any[], kneeSrc = src, extra: Record<string, string> = {}) => memHost({
+    '/w/knee/viewer.json': kneeJson, '/w/knee/knee.scad': kneeSrc,
+    '/w/robot/viewer.json': '{}', '/w/robot/scene.json': JSON.stringify(scene(...robot)), ...extra,
+  });
+  test('a set names its build: same values, same build; the default build is untouched', async () => {
+    const { host } = world([{ id: 'L', use: '../knee', set: { who: 'mixmaster', bend: 45 } }, { id: 'R', use: '../knee' },
+      { id: 'L2', use: '../knee', parts: ['thigh'], set: { bend: 45, who: 'mixmaster' } }]);
+    const st = await readScene(host, '/w/robot');
+    expect(st.errors).toEqual([]);
+    expect(st.parts.map((p) => [p.path, p.src])).toEqual([
+      ['L.thigh', '../knee/thigh?{"bend":45,"who":"mixmaster"}'], ['L.connector', '../knee/connector?{"bend":45,"who":"mixmaster"}'],
+      ['R.thigh', '../knee/thigh'], ['R.connector', '../knee/connector'],
+      ['L2.thigh', '../knee/thigh?{"bend":45,"who":"mixmaster"}']]);
+    expect(st.parts[0].set).toEqual({ who: 'mixmaster', bend: 45 });
+    expect(st.targets).toEqual({ L: '../knee', R: '../knee', L2: '../knee' });
+  });
+  test('refusals: unknown, internal, an expression-shaped value, a folder with no .scad', async () => {
+    const st = await readScene(world([{ id: 'a', use: '../knee', set: { nope: 1, bend: { deg: 3 } } }]).host, '/w/robot');
+    expect(st.errors).toEqual([
+      'instances[0] (a): set: ../knee has no value "nope" (it exports arm_t, ring_d, lug_w, who, bend)',
+      'instances[0] (a): set: "bend" must be a number, true or false, a string, or a list of those (no expressions)',
+    ]);
+    const only = await readScene(world([{ id: 'a', use: '../knee', set: { ring_d: 9 } }], `// @exports-only\n${src}`).host, '/w/robot');
+    expect(only.errors).toEqual(['instances[0] (a): set: "ring_d" is internal to ../knee (its .scad has @exports-only and does not mark it @export)']);
+    const asm = await readScene(world([{ id: 'a', use: '../leg', set: { bend: 9 } }], src, {
+      '/w/leg/viewer.json': '{}', '/w/leg/scene.json': JSON.stringify(scene({ id: 'k', use: '../knee' })) }).host, '/w/robot');
+    expect(asm.errors[0]).toContain('set: ../leg has no .scad of its own');
+  });
+  test('a set reaches a folder\'s own parts through its own scene, the outer one winning', async () => {
+    const { host } = world([{ id: 'a', use: '../knee', set: { bend: 90 } }], src, {
+      '/w/knee/scene.json': JSON.stringify(scene({ id: 'k', set: { bend: 10, arm_t: 1.2 } })) });
+    const st = await readScene(host, '/w/robot');
+    expect(st.errors).toEqual([]);
+    expect(st.parts[0]).toMatchObject({ path: 'a.k.thigh', set: { bend: 90, arm_t: 1.2 }, src: '../knee/thigh?{"arm_t":1.2,"bend":90}' });
+  });
+  test('editing one value; the harness gets it as an assignment after the include, a string quoted', async () => {
+    const { host, builder } = world([{ id: 'L', use: '../knee' }]);
+    await editScene(host, '/w/robot', (s) => setValue(setValue(s, 'L', 'who', parseValue('mixmaster')), 'L', 'bend', parseValue('45')));
+    expect((await readScene(host, '/w/robot')).scene!.instances[0]).toEqual({ id: 'L', use: '../knee', set: { who: 'mixmaster', bend: 45 } });
+    await editScene(host, '/w/robot', (s) => setValue(setValue(s, 'L', 'who', undefined), 'L', 'bend', undefined));
+    expect((await readScene(host, '/w/robot')).scene!.instances[0]).toEqual({ id: 'L', use: '../knee' });
+    const m = await loadModel(host, '/w/knee');
+    const set = { who: 'mixmaster', bend: 45 };
+    const built = await buildParts(host, m, '/c', { set, only: new Set(['connector']), prune: false });
+    expect(built.parts.map((p) => p.src)).toEqual([`connector?${setKey(set)}`]);
+    expect(builder.runs[0]).toBe('include </w/knee/knee.scad>\nshow_all = false;\nwho = "mixmaster";\nbend = 45;\nconnector();\n');
+    expect((await sceneExports(host, '/w/robot')).components['../knee']!.values.map((v) => v.name)).toContain('who');
   });
 });

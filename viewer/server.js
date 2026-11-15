@@ -9,8 +9,8 @@
 import { watch } from 'node:fs';
 import { readFile, writeFile, stat, readdir, access, rename } from 'node:fs/promises';
 import path from 'node:path';
-import { compactJson, moduleSources, loadModel, buildParts, readScene, writeScene, editScene, setFields,
-         SceneError, StaleError, SCENE_FILE, SCENE_SCAD } from '../core/index.ts';
+import { compactJson, moduleSources, loadModel, buildParts, pruneCache, setKey, readScene, writeScene, editScene, setFields,
+         sceneExports, SceneError, StaleError, SCENE_FILE, SCENE_SCAD } from '../core/index.ts';
 import { bunHost, checkOpenscad } from '../core/bun.ts';
 
 const PORT = parseInt(process.env.PORT ?? '3003', 10);
@@ -108,6 +108,11 @@ class Model {
     this.uses = new Map();      // component rel ("../knee") -> its Model, as of the last build
     this.dependents = new Set();   // Models whose scenes use this one
     this.waiting = [];          // resolvers for whenBuilt()
+    // Instances with values of their own (scene.json "set") are built here too, the parts they show only, one
+    // build per distinct set: asked for by this model's own scene or by a model that uses this one.
+    this.loaded = null;         // loadModel() of the last build
+    this.variantKeys = new Map();   // who asked (a model name) -> the cache keys of what it asked for, kept from the prune
+    this.lock = Promise.resolve();  // one build at a time in this.cache: a prune must not meet a half-written variant
     this.fresh = false;         // POST /build: render again even what the cache has
     // scene.json: written through the core (one writer at a time here); sceneHash is the last text we wrote or
     // sent, so our own write echoing back through the watcher is not sent twice
@@ -179,7 +184,7 @@ class Model {
   // ---- scene: <model>/scene.json, through the core ----
   async scene() {
     try { return await readScene(host, this.dir); }
-    catch (e) { return { hash: null, exists: false, scene: null, parts: [], offers: {}, components: [], errors: [String(e.message ?? e)] }; }   // no readable viewer.json
+    catch (e) { return { hash: null, exists: false, scene: null, parts: [], offers: {}, targets: {}, components: [], errors: [String(e.message ?? e)] }; }   // no readable viewer.json
   }
 
   // An outside edit (the CLI, Claude, a hand edit): send it, no rebuild; placement never runs OpenSCAD.
@@ -194,8 +199,10 @@ class Model {
   // A scene that now uses a folder it did not (or no longer does) needs that folder's parts: build, which is
   // only the asking when everything is cached. And whoever uses this model shows this scene: they build too.
   sceneChanged(st) {
+    // ...or a part with values nobody has built yet
     const now = st.components.map((c) => c.rel).sort().join('\n'), was = [...this.uses.keys()].sort().join('\n');
-    if (now !== was) this.scheduleBuild();
+    const have = new Set(this.state.parts.map((p) => p.src));
+    if (now !== was || st.parts.some((p) => !have.has(p.src))) this.scheduleBuild();
     for (const d of this.dependents) d.scheduleBuild();
   }
 
@@ -269,10 +276,38 @@ class Model {
     if (this.state.builtAt && !this.state.building && !this.buildTimer && !this.buildQueued) return Promise.resolve();
     return new Promise((res) => this.waiting.push(res));
   }
+  locked(fn) { const p = this.lock.then(fn, fn); this.lock = p.catch(() => {}); return p; }
+  // Build the parts some instances show with their own values. needs: [{ set, parts: Set of names }], one per
+  // distinct set. Resolves with the built parts (src <name>?<set>) and their STLs. Call inside this.lock.
+  async variantsNow(who, needs) {
+    const parts = [], stls = new Map(), keys = new Set();
+    if (needs.length) {
+      const m = this.loaded ?? await loadModel(host, this.dir);
+      for (const n of needs) {
+        const b = await buildParts(host, m, this.cache, { set: n.set, only: n.parts, prune: false });
+        for (const p of b.parts) { parts.push(p); stls.set(p.src, b.stl(p.name)); keys.add(p.key); }
+      }
+    }
+    if (keys.size) this.variantKeys.set(who, keys); else this.variantKeys.delete(who);
+    return { parts, stls };
+  }
+  async variants(who, needs) { await this.whenBuilt(); return this.locked(() => this.variantsNow(who, needs)); }
+  // what the scene's placed parts need built with values: component rel -> [{ set, parts }]
+  static needs(st) {
+    const by = new Map();
+    for (const p of st.parts) {
+      if (!p.set) continue;
+      if (!by.has(p.component)) by.set(p.component, new Map());
+      const k = setKey(p.set), m = by.get(p.component);
+      if (!m.has(k)) m.set(k, { set: p.set, parts: new Set() });
+      m.get(k).parts.add(p.part);
+    }
+    return new Map([...by].map(([rel, m]) => [rel, [...m.values()]]));
+  }
+
   // The parts of the other folders the scene uses, from their own Models (built there, cached there, watched
   // there). Each is listed under src <rel>/<name>, which is what the scene's placed parts name.
-  async usedParts() {
-    const st = await this.scene();
+  async usedParts(st, needs) {
     const parts = [], stls = new Map(), uses = new Map();
     for (const c of st.components) {
       const name = path.relative(ROOT, c.dir).split(path.sep).join('/');
@@ -282,10 +317,11 @@ class Model {
       await m.whenBuilt();
       m.dependents.add(this);       // after the wait: its finishing build would only ask this one to build again
       if (m.state.error) throw new Error(`${c.rel}: ${m.state.error}`);
-      for (const p of m.base?.parts ?? []) {
-        const src = `${c.rel}/${p.name}`;
+      const v = await m.variants(this.name, needs.get(c.rel) ?? []);
+      for (const p of [...(m.base?.parts ?? []), ...v.parts]) {
+        const src = `${c.rel}/${p.src}`;
         parts.push({ ...p, src, component: c.rel, model: name, file: m.state.file });
-        stls.set(src, m.base.stl(p.name));
+        stls.set(src, v.stls.get(p.src) ?? m.base.stl(p.name));
       }
     }
     for (const [rel, m] of this.uses) if (uses.get(rel) !== m) m.dependents.delete(this);
@@ -306,17 +342,27 @@ class Model {
       state.source = m.source;
       state.params = m.params;
       const fresh = this.fresh; this.fresh = false;
-      // as the files say, then (only while the Parameters panel has values in play) with those on top
-      const base = await buildParts(host, m, this.cache, { keep: this.keys, fresh });
-      const tried = Object.keys(state.overrides ?? {}).length > 0;
-      const built = tried ? await buildParts(host, m, this.cache, { overrides: state.overrides, keep: new Set([...this.keys, ...base.keys.values()]), fresh }) : base;
+      const st = await this.scene(), needs = Model.needs(st);
+      // In this folder's cache, one at a time: as the files say; then (only while the Parameters panel has values
+      // in play) with those on top; then the scene's own instances that set values. The cache keeps these, the
+      // build before (a reset is instant) and what other models asked for.
+      const { base, built, mine } = await this.locked(async () => {
+        this.loaded = m;
+        const base = await buildParts(host, m, this.cache, { fresh, prune: false });
+        const tried = Object.keys(state.overrides ?? {}).length > 0;
+        const built = tried ? await buildParts(host, m, this.cache, { overrides: state.overrides, fresh, prune: false }) : base;
+        const mine = await this.variantsNow(this.name, needs.get('.') ?? []);
+        const keys = new Set([...base.keys.values(), ...built.keys.values()]);
+        await pruneCache(host, this.cache, new Set([...this.keys, ...keys, ...[...this.variantKeys.values()].flatMap((k) => [...k])]));
+        this.keys = keys;
+        return { base, built, mine };
+      });
       this.base = base;
-      this.keys = new Set([...base.keys.values(), ...built.keys.values()]);
-      state.parts = built.parts;
-      this.stl = built.stl;
-      const used = await this.usedParts();
-      state.parts = [...built.parts, ...used.parts];
-      this.stl = (src) => used.stls.get(src) ?? built.stl(src);
+      state.parts = [...built.parts, ...mine.parts];
+      this.stl = (src) => mine.stls.get(src) ?? built.stl(src);
+      const used = await this.usedParts(st, needs);
+      state.parts = [...built.parts, ...mine.parts, ...used.parts];
+      this.stl = (src) => used.stls.get(src) ?? mine.stls.get(src) ?? built.stl(src);
     } catch (e) {
       state.error = String(e.message ?? e);
     }
@@ -490,6 +536,10 @@ Bun.serve({
     // scene: GET the resolved scene and its hash. PUT { base, scene } replaces it; PATCH scene/<id> { base, ...fields }
     // sets fields of one instance (null clears one). A write whose base is not the file's hash any more is refused
     // with 409 and the current hash: reload and reapply. Changes go out as SSE 'scene'; nothing rebuilds.
+    // what each instance's folder lets the scene set: { targets: instance id -> folder, components: folder -> exports }
+    if (route === 'exports') {
+      try { return json(await sceneExports(host, model.dir)); } catch (e) { return json({ error: String(e.message ?? e), targets: {}, components: {} }); }
+    }
     if (route === 'scene' || route.startsWith('scene/')) {
       const whole = route === 'scene';
       if (whole && req.method === 'GET') return json(await model.scene());

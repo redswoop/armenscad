@@ -10,12 +10,16 @@
 //                                                     field= (empty) clears one back to its default
 //   scene <model-folder> split <id> <part> [new-id]   pull one part out into an instance of its own, placed and
 //                                                     dressed as <id> (nothing moves); new-id defaults to the part's name
+//   scene <model-folder> set <id>.<name> [value]      one value of what the instance's .scad exports (set knee_L.who
+//                                                     mixmaster, set knee_L.bend 45); no value: back to the default
+//   scene <model-folder> values [id]                  what each instance's folder exports, and what the scene sets
 //   scene <model-folder> rm <id>
 //   scene <model-folder> scad [--scratch]             write _scene.scad (scratch instances only with --scratch)
 //   scene <model-folder> json                         the resolved scene: hash, instances, placed parts
 import path from 'node:path';
 import {
   readScene, editScene, writeSceneScad, addInstance, copyInstance, moveInstance, removeInstance, setFields, parseField,
+  setValue, parseValue, sceneExports,
   splitInstance, SceneError, StaleError, type Fields, type Instance,
 } from '../core/index.ts';
 import { bunHost } from '../core/bun.ts';
@@ -36,7 +40,7 @@ const need = (n: number) => { if (args.length < n) usage(); };
 
 function line(inst: Instance): string {
   const rest = Object.entries(inst).filter(([k]) => k !== 'id')
-    .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`);
+    .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : typeof v === 'object' ? JSON.stringify(v) : v}`);
   return `  ${inst.id.padEnd(16)} ${rest.join(' ')}`.trimEnd();
 }
 
@@ -50,6 +54,23 @@ try {
     console.log(`  ${parts.length} placed part${parts.length === 1 ? '' : 's'}: ${parts.join(' ')}`.trimEnd());
   } else if (cmd === 'json') {
     console.log(JSON.stringify(await readScene(host, dir), null, 2));
+  } else if (cmd === 'values') {
+    const st = await readScene(host, dir), ex = await sceneExports(host, dir);
+    if (st.errors.length) { for (const e of st.errors) console.error(`  error: ${e}`); process.exit(1); }
+    for (const inst of st.scene!.instances.filter((i) => !args[0] || i.id === args[0])) {
+      const rel = ex.targets[inst.id], e = ex.components[rel];
+      console.log(`${inst.id}  (${rel === '.' ? 'this model' : rel}${e?.only ? ', @exports-only' : ''})`);
+      if (!e) { console.log('  no .scad of its own: nothing to set'); continue; }
+      // every value of a small or marked interface; of a long unmarked one, the marked and the set
+      const all = e.only || e.values.length <= 20 || !!args[0];
+      const rows = e.values.filter((v) => all || v.marked || (inst.set && v.name in inst.set));
+      for (const v of rows) {
+        const set = inst.set && v.name in inst.set ? `  = ${JSON.stringify(inst.set[v.name])}  (default ${v.value})` : `  ${v.value}`;
+        const how = v.range ? ` [${v.range.join(':')}]` : v.choices ? ` [${v.choices.join(', ')}]` : '';
+        console.log(`  ${v.name.padEnd(18)}${set}${how}${v.pose ? ' pose' : ''}${v.doc ? `  ${v.doc}` : ''}`);
+      }
+      if (rows.length < e.values.length) console.log(`  ... and ${e.values.length - rows.length} more unmarked: armenscad scene <model> values ${inst.id}`);
+    }
   } else if (cmd === 'scad') {
     const r = await writeSceneScad(host, dir, { scratch: args.includes('--scratch') });
     console.log(`wrote ${rel(r.path)}`);
@@ -58,6 +79,11 @@ try {
     if (cmd === 'add') { need(1); edit = (s: any) => addInstance(s, args[0], fields(args.slice(1))); }
     else if (cmd === 'copy') { need(2); edit = (s: any) => copyInstance(s, args[0], args[1], fields(args.slice(2))); }
     else if (cmd === 'move') { need(2); const by = vec(args[1]); edit = (s: any) => moveInstance(s, args[0], by); }
+    else if (cmd === 'set' && args[0]?.includes('.')) {
+      const [id, ...name] = args[0].split('.');
+      const v = args.length > 1 ? parseValue(args.slice(1).join(' ')) : undefined;
+      args[0] = id; edit = (s: any) => setValue(s, id, name.join('.'), v);
+    }
     else if (cmd === 'set') { need(2); const f = fields(args.slice(1)); edit = (s: any) => setFields(s, args[0], f); }
     else if (cmd === 'rm') { need(1); edit = (s: any) => removeInstance(s, args[0]); }
     else if (cmd === 'split') {

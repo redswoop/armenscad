@@ -19,6 +19,13 @@
 #inst small.note { color:var(--dim); }
 #inst small.err { color:var(--bad); }
 #inst small[hidden] { display:none; }
+/* the instance's values (what its .scad exports), under the placement rows */
+#inst-vals { display:grid; gap:3px; margin-top:6px; padding-top:6px; border-top:1px solid var(--line); }
+#inst-vals:empty { display:none; }
+#inst-vals .vh { display:flex; gap:8px; align-items:baseline; font: calc(12px * var(--fs)) var(--mono); color:var(--fg); margin-bottom:2px; }
+#inst-vals .vh .muted { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#inst .f.val > label { overflow:hidden; text-overflow:ellipsis; }
+#inst .f.val { grid-template-columns: calc(96px * var(--fs)) 1fr calc(24px * var(--fs)); }
 #inst-panel .cd-panel-foot { flex-wrap:wrap; justify-content:flex-end; row-gap:6px; }   /* Split out joins Duplicate and Remove: a narrow slot takes two lines */
 #inst-panel .cd-panel-foot button { padding:3px 8px; white-space:nowrap; }
 #inst-panel .cd-panel-foot button[hidden] { display:none; }

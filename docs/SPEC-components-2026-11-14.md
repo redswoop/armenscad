@@ -8,7 +8,7 @@ the Instance panel (typed at, rot, mirror, scale with its warning, colour, mater
 duplicate / split out / remove, and undo / redo over every scene change including outside ones, hash-checked (`history.js`).
 Not in phase 0 yet: the check and export warning on a scaled instance (phase 2 brings both).
 Built 2026-11-15, ahead of phases 1 and 2: the plain half of phase 3, instances of other folders (`"use": "../knee"`),
-see "Built 2026-11-15" below.
+see "Built 2026-11-15" below. The same day: phase 1, per-instance values (`set`), see "Built 2026-11-15: values".
 Worked out with Armen on 2026-11-14 after a few weeks of daily use.
 Covers backlog items 1 and 2 in `docs/NOTES.md` (moving parts by hand, combined projects). Builds the ground
 `docs/TODO-kinematics-2026-10-26.md` (joints, poses) stands on.
@@ -303,6 +303,31 @@ The plain half of phase 3, pulled forward for devastator. Example: `examples/hin
   (phase 4). So phase 1 is next, and the legs scene can only be approximate until attach points exist.
 - **Also fixed:** a model three folders below the workspace root was listed but did not load (the route took
   two segments at most).
+
+## Built 2026-11-15: values (phase 1)
+
+- **Marker (question 1, decided): per line.** `name = 1.5;   // @export [1.0:0.1:2.0] what it is`, a pick list as
+  `[a, b, c]`, `@pose` beside it for a pose value. The bracket may come before or after the marker.
+  `core/source.ts` `parseExports`.
+- **Unmarked files (question 2, decided): everything top-of-file is exported** until the file has a
+  `// @exports-only` line; then only the marked values, and setting another is refused as internal. The viewer's
+  own switches (`viewer.json` `defines`) are never values.
+- **`set` on an instance**: plain JSON values (number, true/false, string, lists of those). A string is an OpenSCAD
+  string. It becomes assignments after the include in that instance's harness, so values computed from it
+  recompute. Refused: unknown names, internal names, anything that is not a plain value, and a folder with no
+  `.scad` of its own (re-exports are not built).
+- **Through a folder's own scene**: a set reaches the parts built from that folder's own `.scad`, over any set its
+  own scene gives them; not the folders that scene uses in turn.
+- **Builds**: one per distinct set per folder, only the parts the instances show, in that folder's cache, named
+  `<part>?<set as JSON, names in order>` (`Placed.src`). The default build is untouched.
+- **Viewer**: the Instance panel lists the instance's values under its placement rows, each against its default
+  (placeholder), a dot and ↺ when set, pick lists as menus; undo covers them. A long unmarked interface shows the
+  marked and the set ones and a box to bring up any other by name.
+- **CLI**: `armenscad scene <m> set knee_L.who mixmaster`, `set knee_L.bend` (no value: back to the default),
+  `armenscad scene <m> values [id]`.
+- **Not yet:** pose values moving instantly (they rebuild like any value until joints exist); the "default is now
+  X" notice; the override banner on drill-down; `_scene.scad` for a scene with sets (refused with a message);
+  re-exports.
 
 ## Not in scope
 

@@ -35,6 +35,8 @@ export const deleteOverlay = (id) => fetch(`${API}/annotations/overlays/${id}`, 
 // to it); offers is instance id -> the part names it can show. A write names the hash it was based on (base) and resolves with
 // { ok, hash }, or { error, hash } when someone else wrote first (409: reload, reapply) or { error, errors } (400).
 export const getScene = () => fetch(`${API}/scene`).then(j);
+// what each instance's folder lets the scene set: { targets: instance id -> folder, components: folder -> { only, values } }
+export const getExports = () => fetch(`${API}/exports`).then(j).catch(() => ({ targets: {}, components: {} }));
 export const putScene = (scene, base) => send(`${API}/scene`, 'PUT', { base, scene });
 export const patchInstance = (id, fields, base) => send(`${API}/scene/${id}`, 'PATCH', { ...fields, base });   // null clears a field
 

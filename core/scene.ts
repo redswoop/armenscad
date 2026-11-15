@@ -8,8 +8,13 @@
 // A placement means translate(at) rotate(rot) mirror(mirror) scale(scale) <call>, a move from where the .scad
 // draws the part. A part is addressed instance.part, so ids and part names carry no dots.
 // Another folder is a component: it offers its parts as its .scad draws them, or, when it has a scene.json of its
-// own, what that scene places (scratch instances left out), addressed instance.inner.part. No value overrides yet.
+// own, what that scene places (scratch instances left out), addressed instance.inner.part.
+// "set" gives an instance its own values of what its component's .scad exports (core/source.ts parseExports):
+//   { "id": "knee_L", "use": "../knee", "set": { "who": "mixmaster", "bend": 45 } }
+// Plain values only (numbers, true/false, strings, lists of those): no expressions. A set reaches the parts built
+// from that component's own .scad, also through its own scene; not the folders that scene uses in turn.
 import type { Manifest } from './build.ts';
+import type { Exports } from './source.ts';
 import { placementMatrix, mulMatrix } from './placement.ts';
 
 export const SCENE_FILE = 'scene.json';
@@ -20,6 +25,7 @@ export interface Instance {
   id: string;
   use?: string;
   parts?: string[];
+  set?: Record<string, unknown>;
   at?: Vec3;
   rot?: Vec3;
   scale?: number | Vec3;
@@ -37,6 +43,7 @@ export interface Component {
   manifest: Manifest;
   scene: Scene | null;               // its own scene.json; null: it has none, and offers its parts as drawn
   uses: Uses;
+  exports: Exports | null;           // what its .scad lets a scene set; null: it has no .scad of its own
   error?: string;                    // why it cannot be used (no viewer.json, a broken scene.json, a loop)
 }
 export type Uses = Record<string, Component>;   // by the "use" string as the scene writes it
@@ -47,7 +54,9 @@ export interface Placed {
   instance: string;
   part: string;
   component: string;       // the folder the part is built in, relative to this scene's: "." is this model
-  src: string;             // what to ask the build for: the part's name, or <component>/<name> for another folder's
+  src: string;             // what to ask the build for: the part's name, or <component>/<name> for another folder's,
+                           // then ?<its set as JSON, names in order> when it is built with values of its own
+  set: Record<string, unknown> | null;   // those values: every "set" on the way down to it, the outermost winning
   inner: number[] | null;  // the matrix below the instance's own placement (a component's own scene), column-major
   call: string;
   color: string;
@@ -66,7 +75,7 @@ export class StaleError extends Error {
   constructor(public base: string, public hash: string) { super(`scene.json changed (now ${hash}, the edit was based on ${base}): reload and reapply`); }
 }
 
-export const FIELDS = ['id', 'use', 'parts', 'at', 'rot', 'scale', 'mirror', 'color', 'material', 'scratch'] as const;
+export const FIELDS = ['id', 'use', 'parts', 'set', 'at', 'rot', 'scale', 'mirror', 'color', 'material', 'scratch'] as const;
 const ID = /^[A-Za-z0-9_-]+$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -80,7 +89,10 @@ const isObj = (x: unknown): x is Record<string, any> => !!x && typeof x === 'obj
 const isVec3 = (x: unknown) => Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === 'number' && Number.isFinite(n));
 
 // Every problem at once, each naming the instance, so one hand edit can fix them all.
-export function validateScene(doc: unknown, manifest: Manifest, uses: Uses = {}): string[] {
+const plain = (v: unknown): boolean => (typeof v === 'number' ? Number.isFinite(v) : typeof v === 'boolean' || typeof v === 'string' || (Array.isArray(v) && v.every(plain)));
+// own: what this model's own .scad exports (null: it has none, or the caller does not know: then no instance of
+// its own parts can take a set).
+export function validateScene(doc: unknown, manifest: Manifest, uses: Uses = {}, own: Exports | null = null): string[] {
   const errs: string[] = [];
   const names = manifest.parts.map((p) => p.name);
   for (const n of names) if (n.includes('.')) errs.push(`viewer.json part "${n}": a part name cannot contain a dot (parts are addressed instance.part)`);
@@ -98,15 +110,25 @@ export function validateScene(doc: unknown, manifest: Manifest, uses: Uses = {})
     else if (!ID.test(inst.id)) bad(`id "${inst.id}" may use only letters, digits, _ and -`);
     else if (seen.has(inst.id)) bad(`id "${inst.id}" is used twice`);
     else seen.add(inst.id);
-    if ('set' in inst) bad('"set" (value overrides) is not supported yet; it comes with @export (phase 1)');
     let offered: string[] | null = names, where = 'viewer.json has';
+    let exp: Exports | null | undefined = own, who = 'this model';       // undefined: the folder could not be read
     if (inst.use !== undefined && inst.use !== '.') {
-      offered = null;
+      offered = null; exp = undefined; who = String(inst.use);
       const c = typeof inst.use === 'string' ? uses[inst.use] : undefined;
       if (typeof inst.use !== 'string' || !inst.use) bad('"use" must be a folder, relative to this one ("../knee"), or "." for this model');
       else if (!c) bad(`"use": "${inst.use}": not a folder beside this one (write it relative to this folder, like "../knee")`);
       else if (c.error) bad(`"use": "${inst.use}": ${c.error}`);
-      else { offered = offers(c); where = `${inst.use} offers`; }
+      else { offered = offers(c); where = `${inst.use} offers`; exp = c.exports; }
+    }
+    if (inst.set !== undefined) {
+      if (!isObj(inst.set)) bad('set must be an object of values: { "arm_t": 1.3 }');
+      else if (exp === null) bad(`set: ${who} has no .scad of its own, so no values to set (set them on the instances inside it)`);
+      else if (exp) for (const [k, v] of Object.entries(inst.set)) {
+        const has = exp.values.map((x) => x.name);
+        if (exp.internal.includes(k)) bad(`set: "${k}" is internal to ${who} (its .scad has @exports-only and does not mark it @export)`);
+        else if (!has.includes(k)) bad(`set: ${who} has no value "${k}" (it exports ${has.slice(0, 12).join(', ') || 'nothing'}${has.length > 12 ? `, and ${has.length - 12} more` : ''})`);
+        else if (!plain(v)) bad(`set: "${k}" must be a number, true or false, a string, or a list of those (no expressions)`);
+      }
     }
     if (inst.parts !== undefined) {
       if (!Array.isArray(inst.parts) || !inst.parts.length || !inst.parts.every((p: unknown) => typeof p === 'string'))
@@ -127,7 +149,7 @@ export function validateScene(doc: unknown, manifest: Manifest, uses: Uses = {})
     if (inst.material !== undefined && !(typeof inst.material === 'string' && inst.material)) bad('material must be a name');
     if (inst.scratch !== undefined && typeof inst.scratch !== 'boolean') bad('scratch must be true or false');
     for (const k of Object.keys(inst))
-      if (!(FIELDS as readonly string[]).includes(k) && k !== 'set') bad(`unknown field "${k}" (an instance has ${FIELDS.join(', ')})`);
+      if (!(FIELDS as readonly string[]).includes(k)) bad(`unknown field "${k}" (an instance has ${FIELDS.join(', ')})`);
   });
   return errs;
 }
@@ -138,18 +160,23 @@ const vec = (v: Vec3 | undefined, d: number): Vec3 => (v ? [...v] as Vec3 : [d, 
 // and the matrix that scene gives it.
 interface Offer {
   name: string; part: string; component: string; call: string; color: string; material: string | null;
-  group: string | null; reference: boolean; inner: number[] | null;
+  group: string | null; reference: boolean; inner: number[] | null; set: Record<string, unknown> | null;
 }
 const own = (manifest: Manifest, rel: string): Offer[] => manifest.parts.map((p) => ({
   name: p.name, part: p.name, component: rel, call: p.call, color: p.color ?? '#999999', material: null,
-  group: p.group ?? null, reference: !!p.reference, inner: null,
+  group: p.group ?? null, reference: !!p.reference, inner: null, set: null,
 }));
-// what one instance shows, before its own placement: its component's offers, cut down to "parts"
+// what one instance shows, before its own placement: its component's offers, cut down to "parts", with its "set"
+// on the parts that are built from that component's own .scad (over any set from further in)
 function shown(inst: Instance, manifest: Manifest, rel: string, uses: Uses): Offer[] {
   const c = inst.use !== undefined && inst.use !== '.' ? uses[inst.use] : null;
-  const all = c ? (c.error ? [] : offered(c)) : own(manifest, rel);
-  return inst.parts ? all.filter((o) => inst.parts!.includes(o.name)) : all;
+  let all = c ? (c.error ? [] : offered(c)) : own(manifest, rel);
+  if (inst.parts) all = all.filter((o) => inst.parts!.includes(o.name));
+  const set = inst.set && Object.keys(inst.set).length ? inst.set : null, target = c ? c.rel : rel;
+  return set ? all.map((o) => (o.component === target ? { ...o, set: { ...(o.set ?? {}), ...set } } : o)) : all;
 }
+// a set's identity in a part's src: its entries in name order, as JSON (the same text as core/build.ts setKey)
+const setKey = (set: Record<string, unknown>) => JSON.stringify(Object.fromEntries(Object.entries(set).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
 // A component with no scene.json offers its parts where its .scad draws them. One with a scene.json offers what
 // that scene places, scratch left out: "a component's scene is what it contributes when used".
 function offered(c: Component): Offer[] {
@@ -168,7 +195,7 @@ function offered(c: Component): Offer[] {
 export const offers = (c: Component): string[] => offered(c).map((o) => o.name);
 // the same for each instance of a scene: instance id -> names (the viewer's split, the CLI's)
 export function sceneOffers(scene: Scene, manifest: Manifest, uses: Uses = {}): Record<string, string[]> {
-  return Object.fromEntries(scene.instances.map((inst) => [inst.id, shown({ ...inst, parts: undefined }, manifest, '.', uses).map((o) => o.name)]));
+  return Object.fromEntries(scene.instances.map((inst) => [inst.id, shown({ ...inst, parts: undefined, set: undefined }, manifest, '.', uses).map((o) => o.name)]));
 }
 
 // The flat list of placed parts, instance by instance, parts in viewer.json order. Scratch instances are left
@@ -180,7 +207,7 @@ export function resolveScene(scene: Scene, manifest: Manifest, { scratch = true,
     for (const o of shown(inst, manifest, '.', uses)) {
       out.push({
         path: `${inst.id}.${o.name}`, instance: inst.id, part: o.part, component: o.component,
-        src: o.component === '.' ? o.part : `${o.component}/${o.part}`, inner: o.inner, call: o.call,
+        src: (o.component === '.' ? o.part : `${o.component}/${o.part}`) + (o.set ? `?${setKey(o.set)}` : ''), set: o.set, inner: o.inner, call: o.call,
         color: inst.color ?? o.color, material: inst.material ?? o.material, group: o.group,
         reference: o.reference, scratch: !!inst.scratch,
         at: vec(inst.at, 0), rot: vec(inst.rot, 0), mirror: vec(inst.mirror, 0),
@@ -248,6 +275,21 @@ export function setFields(scene: Scene, id: string, fields: Fields): Scene {
   const s = clone(scene); apply(find(s, id), fields); return s;
 }
 
+// One value of one instance: v sets it, undefined clears it (the component's default holds again). An instance
+// left with no values loses its "set".
+export function setValue(scene: Scene, id: string, name: string, v: unknown): Scene {
+  const s = clone(scene), inst = find(s, id);
+  const set = { ...(inst.set ?? {}) };
+  if (v === undefined) delete set[name]; else set[name] = v;
+  if (Object.keys(set).length) inst.set = set; else delete inst.set;
+  return s;
+}
+// A value typed on a command line or in a field: JSON where it parses (1.3, true, [1, 2], "a b"), else the text
+// itself as a string (mixmaster).
+export function parseValue(raw: string): unknown {
+  try { return JSON.parse(raw); } catch { return raw; }
+}
+
 // A free instance id made from a name: the name itself (characters an id cannot have made _), else name_2, name_3...
 export function freeId(scene: Scene, name: string): string {
   const base = name.replace(/[^A-Za-z0-9_-]/g, '_') || 'part';
@@ -284,7 +326,7 @@ export function parseField(arg: string): [keyof Fields, unknown] {
   if (!m) throw new SceneError([`"${arg}" is not field=value`]);
   const [, k, raw] = m;
   if (k === 'id') throw new SceneError(['an instance id cannot be changed; copy it to the new id and remove the old one']);
-  if (k === 'set') throw new SceneError(['"set" (value overrides) is not supported yet; it comes with @export (phase 1)']);
+  if (k === 'set') throw new SceneError(['a value is set as <id>.<name> <value> (armenscad scene <model> set knee_L.arm_t 1.3), not as a field']);
   if (!(FIELDS as readonly string[]).includes(k)) throw new SceneError([`unknown field "${k}" (an instance has ${FIELDS.slice(1).join(', ')})`]);
   if (raw === '') return [k as keyof Fields, null];
   const list = () => raw.replace(/^\[|\]$/g, '').split(',').map((x) => x.trim());

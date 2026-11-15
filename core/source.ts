@@ -23,6 +23,46 @@ export function parseParams(src: string): Param[] {
   return params;
 }
 
+// What a .scad lets a scene set from outside (docs/SPEC-components-2026-11-14.md, "The interface"):
+//   arm_t = 1.5;   // @export [1.0:0.1:2.0] flex-arm thickness
+//   who   = "scrapper";   // @export ["scrapper", "mixmaster"] which connector
+//   bend  = 0;     // @export @pose [0:15:135] knee angle
+// A file with no `// @exports-only` line exports every top-of-file value (marked or not), so a scene can set
+// what it needs without the file being touched; with that line, only the marked ones, and the rest are internal.
+export interface ExportedValue {
+  name: string; value: string;          // value: the default as the file writes it
+  section: string; line: number; doc: string;
+  marked: boolean; pose: boolean;
+  literal: boolean;                     // a plain number, string, true/false or list: its default reads without a build
+  range?: number[];                     // [min, max] or [min, step, max], as OpenSCAD's Customizer writes it
+  choices?: (string | number)[];
+}
+export interface Exports { only: boolean; values: ExportedValue[]; internal: string[] }
+
+export function parseExports(src: string, skip: Iterable<string> = []): Exports {
+  const only = /^[ \t]*\/\/\s*@exports-only\b/m.test(src);
+  const skipped = new Set(skip);
+  const all: ExportedValue[] = [];
+  for (const p of parseParams(src)) {
+    if (skipped.has(p.name)) continue;
+    const marked = /@export\b/.test(p.comment), pose = /@pose\b/.test(p.comment);
+    const v: ExportedValue = {
+      name: p.name, value: p.value, section: p.section, line: p.line, marked, pose,
+      literal: /^-?[\d.]+(e[-+]?\d+)?$|^(true|false)$|^"[^"]*"$|^\[[^()]*\]$/i.test(p.value),
+      doc: p.comment.replace(/@export\b|@pose\b/g, '').replace(/\[[^\]]*\]/, '').replace(/\s+/g, ' ').trim(),
+    };
+    const br = p.comment.match(/\[([^\]]*)\]/)?.[1];
+    if (br != null && br.includes(':')) {
+      const n = br.split(':').map((x) => Number(x.trim()));
+      if ((n.length === 2 || n.length === 3) && n.every(Number.isFinite)) v.range = n;
+    } else if (br != null && br.trim()) {
+      v.choices = br.split(',').map((x) => x.trim()).filter(Boolean).map((x) => (/^-?[\d.]+$/.test(x) ? Number(x) : x.replace(/^"|"$/g, '')));
+    }
+    all.push(v);
+  }
+  return { only, values: only ? all.filter((v) => v.marked) : all, internal: only ? all.filter((v) => !v.marked).map((v) => v.name) : [] };
+}
+
 const BUILTIN = new Set('translate rotate mirror scale cube cylinder sphere polygon circle square linear_extrude rotate_extrude hull minkowski difference union intersection offset import color for if let echo children projection resize multmatrix render surface text polyhedron'.split(' '));
 // the module plus every user module it calls, depth-first, each once
 export function moduleSources(src: string, name: string, seen = new Set<string>()): { name: string; code: string; line: number }[] {
