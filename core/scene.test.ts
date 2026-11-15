@@ -6,6 +6,7 @@ import {
   type Manifest, type Scene,
 } from './index.ts';
 import { memHost } from './mem.ts';
+import { placedMatrix, applyMatrix } from './placement.ts';
 
 const manifest: Manifest = {
   file: 'box.scad',
@@ -39,11 +40,12 @@ describe('validation', () => {
     const dotted = { ...manifest, parts: [{ name: 'a.b', call: 'x();' }] };
     expect(validateScene(scene(), dotted)[0]).toContain('part "a.b": a part name cannot contain a dot');
   });
-  test('set and cross-folder use are refused as not supported yet', () => {
-    const e = validateScene(scene({ id: 'k', use: '../knee', set: { arm_t: 1.3 } }), manifest);
-    expect(e).toHaveLength(2);
+  test('set is refused as not supported yet; a use that names no folder says how to write one', () => {
+    const e = validateScene(scene({ id: 'k', use: '../knee', set: { arm_t: 1.3 } }, { id: 'j', use: 7 }), manifest);
+    expect(e).toHaveLength(3);
     expect(e[0]).toContain('"set" (value overrides) is not supported yet');
-    expect(e[1]).toContain('"use": "../knee": only "." (this model) is supported yet');
+    expect(e[1]).toContain('"use": "../knee": not a folder beside this one');
+    expect(e[2]).toContain('"use" must be a folder, relative to this one');
   });
   test('bad shapes', () => {
     const e = validateScene(scene({ id: 'a', at: [1, 2], rot: 'x', mirror: [1, 0, NaN], scale: -1, color: 'red', scratch: 1, pos: [0, 0, 0], parts: [] }), manifest);
@@ -70,7 +72,7 @@ describe('resolution', () => {
     expect(defaultScene('my.model').instances[0].id).toBe('my_model');
     const placed = resolveScene(defaultScene('m'), manifest);
     expect(placed.map((p) => p.path)).toEqual(['m.box', 'm.lid', 'm.brick']);
-    expect(placed[0]).toEqual({ path: 'm.box', instance: 'm', part: 'box', call: 'box();', color: '#4682b4', material: null, group: null,
+    expect(placed[0]).toEqual({ path: 'm.box', instance: 'm', part: 'box', component: '.', src: 'box', inner: null, call: 'box();', color: '#4682b4', material: null, group: null,
       reference: false, scratch: false, at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], mirror: [0, 0, 0] });
     expect(placed[2].color).toBe('#999999');
   });
@@ -169,7 +171,7 @@ describe('split', () => {
     const s = scene({ id: 'a', parts: ['lid'] }, { id: 'b', parts: ['box', 'lid'] }) as Scene;
     expect(() => splitInstance(s, manifest, 'a', 'lid')).toThrow('a shows only "lid": nothing to split it from');
     expect(() => splitInstance(s, manifest, 'b', 'brick')).toThrow('b does not show "brick" (it shows box, lid)');
-    expect(() => splitInstance(s, manifest, 'b', 'hinge')).toThrow('no part "hinge" (viewer.json has box, lid, brick)');
+    expect(() => splitInstance(s, manifest, 'b', 'hinge')).toThrow('no part "hinge" (b has box, lid, brick)');
     expect(() => splitInstance(s, manifest, 'c', 'box')).toThrow('no instance "c" (the scene has a, b)');
     expect(() => splitInstance(s, manifest, 'a', 'lid')).toThrow(SceneError);
   });
@@ -259,5 +261,78 @@ describe('generated OpenSCAD', () => {
       '%translate([70, 0, 0]) rotate([0, 0, 90]) mirror([1, 0, 0]) scale([1, 1, 2]) { brick(); }   // b.brick',
       '',
     ].join('\n'));
+  });
+});
+
+// A toy with two leaf folders and two assemblies: leg uses knee twice and its own part; robot uses leg and a toy scan.
+describe('other folders', () => {
+  const knee = JSON.stringify({ file: 'knee.scad', parts: [{ name: 'thigh', call: 'thigh();', color: '#e8902a' }, { name: 'connector', call: 'connector();' }] });
+  const world = (extra: Record<string, string> = {}) => memHost({
+    '/w/knee/viewer.json': knee, '/w/knee/knee.scad': '',
+    '/w/toys/hook/viewer.json': JSON.stringify({ file: 'hook.scad', parts: [{ name: 'hook', call: 'hook();', reference: true }] }),
+    '/w/leg/viewer.json': JSON.stringify({ file: 'leg.scad', parts: [{ name: 'shin', call: 'shin();' }] }),
+    '/w/leg/scene.json': JSON.stringify(scene({ id: 'shin' }, { id: 'knee', use: '../knee', at: [0, 0, 10], color: '#112233' },
+      { id: 'spare', use: '../knee', parts: ['thigh'], at: [50, 0, 0], scratch: true })),
+    '/w/robot/viewer.json': '{}',
+    ...extra,
+  });
+  const robot = (...instances: any[]) => ({ '/w/robot/scene.json': JSON.stringify(scene(...instances)) });
+
+  test('a folder with no scene.json offers its parts as drawn: instance.part, built there', async () => {
+    const { host } = world(robot({ id: 'knee_L', use: '../knee', at: [16, 0, 0] }, { id: 'hook', use: '../toys/hook' }));
+    const st = await readScene(host, '/w/robot');
+    expect(st.errors).toEqual([]);
+    expect(st.parts.map((p) => [p.path, p.component, p.src])).toEqual([
+      ['knee_L.thigh', '../knee', '../knee/thigh'], ['knee_L.connector', '../knee', '../knee/connector'], ['hook.hook', '../toys/hook', '../toys/hook/hook']]);
+    expect(st.parts[0]).toMatchObject({ at: [16, 0, 0], inner: null, color: '#e8902a', part: 'thigh' });
+    expect(st.parts[2].reference).toBe(true);
+    expect(st.offers).toEqual({ knee_L: ['thigh', 'connector'], hook: ['hook'] });
+    expect(st.components).toEqual([{ rel: '../knee', dir: '/w/knee' }, { rel: '../toys/hook', dir: '/w/toys/hook' }]);
+  });
+  test('a folder with a scene.json offers what it places, scratch left out, under instance.inner.part', async () => {
+    const { host } = world(robot({ id: 'leg_L', use: '../leg', at: [5, 0, 0], rot: [0, 0, 90] }));
+    const st = await readScene(host, '/w/robot');
+    expect(st.errors).toEqual([]);
+    expect(st.parts.map((p) => [p.path, p.src])).toEqual([
+      ['leg_L.shin.shin', '../leg/shin'], ['leg_L.knee.thigh', '../knee/thigh'], ['leg_L.knee.connector', '../knee/connector']]);
+    // the knee's colour is the leg's choice; the robot's instance says none
+    expect(st.parts[1].color).toBe('#112233');
+    // where a point of the thigh ends up: up 10 in the leg, then turned a quarter about Z and moved 5 in the robot
+    expect(applyMatrix(placedMatrix(st.parts[1]), [1, 0, 0])).toEqual([5, 1, 10]);
+    expect(st.components.map((c) => c.rel)).toEqual(['../leg', '../knee']);
+    expect(st.offers.leg_L).toEqual(['shin.shin', 'knee.thigh', 'knee.connector']);
+  });
+  test('parts picks from what the folder offers, and says what that is', async () => {
+    const { host } = world(robot({ id: 'a', use: '../leg', parts: ['knee.thigh'] }, { id: 'b', use: '../knee', parts: ['shin'] }));
+    const st = await readScene(host, '/w/robot');
+    expect(st.errors).toEqual(['instances[1] (b): unknown part "shin" (../knee offers thigh, connector)']);
+    const ok = await readScene(world(robot({ id: 'a', use: '../leg', parts: ['knee.thigh'] })).host, '/w/robot');
+    expect(ok.parts.map((p) => p.path)).toEqual(['a.knee.thigh']);
+  });
+  test('a folder that cannot be used: missing, broken, or a loop', async () => {
+    const { host } = world({
+      ...robot({ id: 'a', use: '../nope' }, { id: 'b', use: '../bad' }, { id: 'c', use: '../loop' }),
+      '/w/bad/viewer.json': '{}', '/w/bad/scene.json': JSON.stringify(scene({ id: 'x', parts: ['gone'] })),
+      '/w/loop/viewer.json': '{}', '/w/loop/scene.json': JSON.stringify(scene({ id: 'r', use: '../robot' })),
+    });
+    const st = await readScene(host, '/w/robot');
+    expect(st.errors).toEqual([
+      'instances[0] (a): "use": "../nope": no viewer.json there',
+      'instances[1] (b): "use": "../bad": its scene.json has an error: instances[0] (x): unknown part "gone" (viewer.json has no parts)',
+      'instances[2] (c): "use": "../loop": its scene.json has an error: instances[0] (r): "use": "../robot": a loop: robot uses loop uses robot',
+    ]);
+    expect(st.parts).toEqual([]);
+  });
+  test('writes validate against the folders; split works on what an instance offers; _scene.scad says it cannot yet', async () => {
+    const { host } = world();
+    await editScene(host, '/w/robot', (s) => ({ ...s, instances: [{ id: 'k', use: '../knee' }] }));
+    const bad = await editScene(host, '/w/robot', (s) => ({ ...s, instances: [{ id: 'k', use: '../nope' }] })).catch((e) => e);
+    expect(bad).toBeInstanceOf(SceneError);
+    const st = await readScene(host, '/w/robot');
+    await editScene(host, '/w/robot', (s) => splitInstance(s, st.offers, 'k', 'thigh'));
+    expect((await readScene(host, '/w/robot')).scene!.instances).toEqual([
+      { id: 'k', use: '../knee', parts: ['connector'] }, { id: 'thigh', use: '../knee', parts: ['thigh'] }]);
+    const e = await writeSceneScad(host, '/w/robot').catch((e) => e);
+    expect(e.message).toContain('_scene.scad is not written yet for a scene that uses other folders (k, thigh)');
   });
 });

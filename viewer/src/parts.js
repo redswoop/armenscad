@@ -2,8 +2,9 @@
 // selection and the source panel.
 //
 // The scene (scene.json through the server's /scene; docs/SPEC-components-2026-11-14.md) is a list of placed parts,
-// each addressed instance.part. One mesh per placed part, keyed by that path; one STL geometry per part name, loaded
-// once and shared by every instance that shows it. A placement is a matrix (core/placement.ts, the same maths the
+// each addressed instance.part. One mesh per placed part, keyed by that path; one STL geometry per built part (its
+// src: the part's name, or <folder>/<name> for a part of another folder the scene uses), loaded once and shared by
+// every instance that shows it. A placement is a matrix (core/placement.ts, the same maths the
 // core and _scene.scad use), so moving an instance never reloads a mesh. With no scene.json the scene is one
 // instance at identity and the viewer looks as it always did: while there is one instance its id stays out of
 // the UI (the list, the tip, hiddenParts() all say the bare part name); with more the list is grouped by instance.
@@ -13,7 +14,7 @@ import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { placementMatrix, scaled } from '../../core/placement.ts';
+import { placementMatrix, placedMatrix, scaled } from '../../core/placement.ts';
 import { app } from './app.js';
 import { MODEL, partUrl, refStlUrl, getSource, getScene } from './api.js';
 import { scene, group, canvas, fit, toNDC, raycast, bus, renderer } from './scene.js';
@@ -26,7 +27,9 @@ const loader = new STLLoader();
 const EYE = createElement(Eye).outerHTML, EYE_OFF = createElement(EyeOff).outerHTML, CHEVRON = createElement(ChevronDown).outerHTML;
 const eye = (shown, title) => `<button class="eye" title="${title}">${shown ? EYE : EYE_OFF}</button>`;
 export const meshes = new Map();      // instance.part -> mesh
-const geos = new Map();               // part name -> { version, geo }: one STL, shared by every instance showing it
+const geos = new Map();               // built part src -> { version, geo }: one STL, shared by every instance showing it
+// a placed part's built part (state.parts): ok, tris, module, and for another folder's part its model and file
+const builtOf = (pl) => app.state?.parts.find((p) => p.src === pl.src);
 let ghost = null;
 // paths (instance.part); a bare part name (stored before scenes) is read as that part in every instance
 const hidden = new Set(JSON.parse(localStorage.getItem(`hidden:${MODEL}`) ?? '[]'));
@@ -47,8 +50,8 @@ const partOf = (path) => path.slice(path.indexOf('.') + 1);
 function placedParts() {
   if (placed) return placed;
   const id = MODEL.split('/').pop().replace(/[^A-Za-z0-9_-]/g, '_') || 'model';     // as core/scene.ts defaultScene
-  return (app.state?.parts ?? []).map((p) => ({ path: `${id}.${p.name}`, instance: id, part: p.name, call: p.call, color: p.color,
-    material: null, group: p.group, reference: p.reference, scratch: false, at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], mirror: [0, 0, 0] }));
+  return (app.state?.parts ?? []).filter((p) => !p.component).map((p) => ({ path: `${id}.${p.name}`, instance: id, part: p.name, call: p.call, color: p.color,
+    component: '.', src: p.src, inner: null, material: null, group: p.group, reference: p.reference, scratch: false, at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], mirror: [0, 0, 0] }));
 }
 const instanceIds = () => [...new Set(placedParts().map((p) => p.instance))];
 export const multiInstance = () => instanceIds().length > 1;
@@ -96,7 +99,7 @@ function place() {
   const bare = [...hidden].filter((n) => !n.includes('.'));
   if (bare.length && placed) { for (const n of bare) { hidden.delete(n); for (const q of pathsFor(n)) hidden.add(q); } saveHidden(); }
   for (const pl of list) {
-    const built = app.state?.parts.find((p) => p.name === pl.part), g = geos.get(pl.part);
+    const built = builtOf(pl), g = geos.get(pl.src);
     let m = meshes.get(pl.path);
     if (!g) { if (m) m.visible = false; continue; }
     if (!m) {
@@ -106,7 +109,7 @@ function place() {
     } else if (m.geometry !== g.geo) m.geometry = g.geo;
     m.userData.name = pl.path; m.userData.label = labelOf(pl.path); m.userData.part = built; m.userData.placed = pl;
     dress(m, pl);
-    m.matrix.fromArray(placementMatrix(pl)); m.matrixWorldNeedsUpdate = true; m.updateMatrixWorld();
+    m.matrix.fromArray(placedMatrix(pl)); m.matrixWorldNeedsUpdate = true; m.updateMatrixWorld();
     m.visible = !!built?.ok && !hidden.has(pl.path);
   }
   for (const g of geos.values()) if (g.old) { disposeGeo(g.old); delete g.old; }
@@ -136,7 +139,7 @@ function takeScene(st) {
 export function previewInstance(id, fields) {
   for (const m of meshes.values()) {
     if (m.userData.placed?.instance !== id) continue;
-    m.matrix.fromArray(placementMatrix({ ...m.userData.placed, ...fields })); m.matrixWorldNeedsUpdate = true; m.updateMatrixWorld();
+    m.matrix.fromArray(placedMatrix({ ...m.userData.placed, ...fields })); m.matrixWorldNeedsUpdate = true; m.updateMatrixWorld();
   }
   bus.dispatchEvent(new Event('placed'));
 }
@@ -158,7 +161,7 @@ export async function refresh(s) {
   app.state = s;
   console.log('[viewer] refresh, built', s.builtAt, 'overrides', JSON.stringify(s.overrides));
   // a breadcrumb: the model's path in the workspace (toy / assembly), then the file; it opens the model picker
-  $('#title').innerHTML = `${MODEL.split('/').map((x) => `<span>${x}</span>`).join('<i>/</i>')}<i>/</i><span class="file">${s.file ?? '?'}</span><b>▾</b>`;
+  $('#title').innerHTML = `${MODEL.split('/').map((x) => `<span>${x}</span>`).join('<i>/</i>')}<i>/</i><span class="file">${s.file ?? 'scene.json'}</span><b>▾</b>`;
   const ovKeys = Object.keys(s.overrides ?? {});
   $('#override-banner').hidden = ovKeys.length === 0;
   $('#override-banner').textContent = ovKeys.length ? `⚠ overrides active: ${ovKeys.map((k) => `${k}=${s.overrides[k]}`).join(', ')} — click Reset to return to the file` : '';
@@ -168,12 +171,12 @@ export async function refresh(s) {
   const st = await getScene().catch((e) => ({ errors: [`cannot read the scene: ${e.message ?? e}`], parts: [] }));
   // each part's STL once, whatever number of instances show it; the old geometry goes once every mesh has the new
   await Promise.all(s.parts.map(async (p) => {
-    const g = geos.get(p.name);
+    const g = geos.get(p.src);
     if (!p.ok || (g && g.version === p.version)) return;
-    const geo = await loadMesh(partUrl(p.name, p.version));
-    geos.set(p.name, { version: p.version, geo, old: g?.geo });
+    const geo = await loadMesh(partUrl(p.src, p.version));
+    geos.set(p.src, { version: p.version, geo, old: g?.geo });
   }));
-  const gone = [...geos].filter(([n]) => !s.parts.some((p) => p.name === n));
+  const gone = [...geos].filter(([n]) => !s.parts.some((p) => p.src === n));
   for (const [n] of gone) geos.delete(n);
   takeScene(st); place();
   for (const [, g] of gone) disposeGeo(g.geo);
@@ -210,6 +213,7 @@ function renderPartList() {
     li.innerHTML = `<span class="sw" style="background:${p.color}"></span><span class="n">${p.label}</span>${p.badge}${p.ok ? '' : `<span class="t">${p.empty ? 'empty' : 'failed'}</span>`}${eye(!hidden.has(p.name), hidden.has(p.name) ? 'show' : 'hide')}`;
     li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); toggle(p.name); renderPartList(); };
     li.onclick = () => select(p.name);
+    if (p.model) { li.title = `built in ${p.model}; double-click to open it`; li.ondblclick = () => { location.href = `/${p.model}/`; }; }
     return li;
   };
   for (const row of order) {
@@ -246,7 +250,7 @@ function scaleBadge(pl) {
 function rows() {
   const byInstance = multiInstance(), out = [];
   for (const pl of placedParts()) {
-    const built = app.state.parts.find((p) => p.name === pl.part);
+    const built = builtOf(pl);
     if (!built) continue;
     const badge = scaleBadge(pl);
     out.push({ ...built, name: pl.path, label: labelOf(pl.path), color: pl.color, group: byInstance ? pl.instance : pl.group,
@@ -312,10 +316,10 @@ export async function select(name) {
   app.selected = name; selectedGroup = null;
   paint(); renderPartList();
   bus.dispatchEvent(new Event('select'));
-  const p = app.state.parts.find((x) => x.name === partOf(name));
+  const p = meshes.get(name)?.userData.part;
   source = null; showCode();
   if (!p?.module) return;
-  const mods = await getSource(p.module);
+  const mods = await getSource(p.module, p.model);      // a part of another folder: that folder's source
   if (app.selected !== name) return;            // another pick while this one loaded
   source = { part: p, mods };
   focusParams(mods.map((m) => m.code).join('\n'));
@@ -336,7 +340,7 @@ function showCode() {
   $('#code').hidden = !show;
   if (!show) return;
   const { part: p, mods } = source;
-  $('#code-title').textContent = `${p.call}   →   ${app.state.file}:${mods[0]?.line ?? '?'}   (${mods.length} module${mods.length === 1 ? '' : 's'})`;
+  $('#code-title').textContent = `${p.call}   →   ${p.model ? `${p.model}/${p.file}` : app.state.file}:${mods[0]?.line ?? '?'}   (${mods.length} module${mods.length === 1 ? '' : 's'})`;
   $('#code-body').innerHTML = mods.map((m) => `<div class="mod-head">${m.name}()  <span class="muted">line ${m.line}</span></div>` + highlight(m.code)).join('\n');
 }
 // a group: highlight every member, no source panel
@@ -435,8 +439,10 @@ export function pickPart(ndc) {
   const hit = raycast(ndc, visibleMeshes());
   if (!hit) return null;
   const o = hit.object, pl = o.userData.placed;
-  return { name: o.userData.name, label: o.userData.label, instance: pl.instance, part: pl.part, point: hit.point,
-           local: hit.point.clone().applyMatrix4(o.matrixWorld.clone().invert()) };
+  // into the mesh's frame, then back out through what lies below the instance (a used folder's own scene)
+  const local = hit.point.clone().applyMatrix4(o.matrixWorld.clone().invert());
+  if (pl.inner) local.applyMatrix4(new THREE.Matrix4().fromArray(pl.inner));
+  return { name: o.userData.name, label: o.userData.label, instance: pl.instance, part: pl.part, point: hit.point, local };
 }
 let downAt = null;
 canvas.addEventListener('pointermove', (ev) => {

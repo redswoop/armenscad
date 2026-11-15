@@ -50,6 +50,17 @@ export function placementMatrix(p: Placement): number[] {
   return out.map((v) => (Object.is(v, -0) ? 0 : v));
 }
 
+// a · b for two column-major 4x4s: b first, then a
+export function mulMatrix(a: number[], b: number[]): number[] {
+  const o = new Array(16).fill(0);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+  return o.map((v) => (Object.is(v, -0) ? 0 : v));
+}
+// A placed part's whole matrix: its instance's placement, then (inner) what the component it came from does to
+// the part below that: the placements of that component's own scene, already multiplied out. null: nothing.
+export const placedMatrix = (p: Placement & { inner?: number[] | null }): number[] =>
+  (p.inner ? mulMatrix(placementMatrix(p), p.inner) : placementMatrix(p));
+
 // a point through a column-major 4x4 (affine)
 export function applyMatrix(m: number[], [x, y, z]: Vec3): Vec3 {
   return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]];
@@ -58,6 +69,6 @@ export function determinant3(m: number[]): number {
   return m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
 }
 // does this placement turn the part inside out (winding flipped)?
-export const mirrored = (p: Placement) => determinant3(placementMatrix(p)) < 0;
+export const mirrored = (p: Placement & { inner?: number[] | null }) => determinant3(placedMatrix(p)) < 0;
 // scale other than 1: clearances scale too (the spec's "scale: allowed, flagged")
 export const scaled = (p: Placement) => scaleVec(p.scale).some((v) => v !== 1);

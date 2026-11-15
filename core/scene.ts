@@ -2,11 +2,15 @@
 // edits and the file's text. No Node imports, so the viewer imports it too (the split it offers is this file's).
 // Reading and writing the file, and its hash, are model.ts.
 //
-// Phase 0 shape (docs/SPEC-components-2026-11-14.md): instances of the model's own component only.
-//   { "version": 1, "instances": [ { "id": "box2", "parts": ["box"], "at": [70, 0, 0], "mirror": [1, 0, 0] } ] }
+// Shape (docs/SPEC-components-2026-11-14.md): instances of the model's own parts, and of other folders ("use").
+//   { "version": 1, "instances": [ { "id": "box2", "parts": ["box"], "at": [70, 0, 0], "mirror": [1, 0, 0] },
+//                                  { "id": "knee_L", "use": "../knee", "at": [16.8, 0, -66] } ] }
 // A placement means translate(at) rotate(rot) mirror(mirror) scale(scale) <call>, a move from where the .scad
 // draws the part. A part is addressed instance.part, so ids and part names carry no dots.
+// Another folder is a component: it offers its parts as its .scad draws them, or, when it has a scene.json of its
+// own, what that scene places (scratch instances left out), addressed instance.inner.part. No value overrides yet.
 import type { Manifest } from './build.ts';
+import { placementMatrix, mulMatrix } from './placement.ts';
 
 export const SCENE_FILE = 'scene.json';
 export const SCENE_SCAD = '_scene.scad';
@@ -26,11 +30,25 @@ export interface Instance {
 }
 export interface Scene { version: 1; instances: Instance[] }
 
+// Another folder as a scene sees it. model.ts loads the tree (viewer.json, scene.json and what that uses in turn).
+export interface Component {
+  rel: string;                       // the folder, relative to the folder of the scene being resolved ("../knee")
+  dir: string;                       // the folder itself
+  manifest: Manifest;
+  scene: Scene | null;               // its own scene.json; null: it has none, and offers its parts as drawn
+  uses: Uses;
+  error?: string;                    // why it cannot be used (no viewer.json, a broken scene.json, a loop)
+}
+export type Uses = Record<string, Component>;   // by the "use" string as the scene writes it
+
 // one part of one instance, as placed
 export interface Placed {
-  path: string;            // instance.part
+  path: string;            // instance.part, or instance.inner.part through a component with its own scene
   instance: string;
   part: string;
+  component: string;       // the folder the part is built in, relative to this scene's: "." is this model
+  src: string;             // what to ask the build for: the part's name, or <component>/<name> for another folder's
+  inner: number[] | null;  // the matrix below the instance's own placement (a component's own scene), column-major
   call: string;
   color: string;
   material: string | null;
@@ -62,7 +80,7 @@ const isObj = (x: unknown): x is Record<string, any> => !!x && typeof x === 'obj
 const isVec3 = (x: unknown) => Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === 'number' && Number.isFinite(n));
 
 // Every problem at once, each naming the instance, so one hand edit can fix them all.
-export function validateScene(doc: unknown, manifest: Manifest): string[] {
+export function validateScene(doc: unknown, manifest: Manifest, uses: Uses = {}): string[] {
   const errs: string[] = [];
   const names = manifest.parts.map((p) => p.name);
   for (const n of names) if (n.includes('.')) errs.push(`viewer.json part "${n}": a part name cannot contain a dot (parts are addressed instance.part)`);
@@ -81,15 +99,20 @@ export function validateScene(doc: unknown, manifest: Manifest): string[] {
     else if (seen.has(inst.id)) bad(`id "${inst.id}" is used twice`);
     else seen.add(inst.id);
     if ('set' in inst) bad('"set" (value overrides) is not supported yet; it comes with @export (phase 1)');
+    let offered: string[] | null = names, where = 'viewer.json has';
     if (inst.use !== undefined && inst.use !== '.') {
-      if (typeof inst.use === 'string') bad(`"use": "${inst.use}": only "." (this model) is supported yet; other folders come with assemblies (phase 3)`);
-      else bad('"use" must be "." or left out');
+      offered = null;
+      const c = typeof inst.use === 'string' ? uses[inst.use] : undefined;
+      if (typeof inst.use !== 'string' || !inst.use) bad('"use" must be a folder, relative to this one ("../knee"), or "." for this model');
+      else if (!c) bad(`"use": "${inst.use}": not a folder beside this one (write it relative to this folder, like "../knee")`);
+      else if (c.error) bad(`"use": "${inst.use}": ${c.error}`);
+      else { offered = offers(c); where = `${inst.use} offers`; }
     }
     if (inst.parts !== undefined) {
       if (!Array.isArray(inst.parts) || !inst.parts.length || !inst.parts.every((p: unknown) => typeof p === 'string'))
         bad('parts must be a non-empty list of part names (leave it out for all of them)');
       else {
-        for (const p of inst.parts) if (!names.includes(p)) bad(`unknown part "${p}" (viewer.json has ${names.join(', ')})`);
+        if (offered) for (const p of inst.parts) if (!offered.includes(p)) bad(`unknown part "${p}" (${where} ${offered.join(', ') || 'no parts'})`);
         if (new Set(inst.parts).size !== inst.parts.length) bad('parts lists a part twice');
       }
     }
@@ -111,24 +134,66 @@ export function validateScene(doc: unknown, manifest: Manifest): string[] {
 
 const vec = (v: Vec3 | undefined, d: number): Vec3 => (v ? [...v] as Vec3 : [d, d, d]);
 
+// One part as a component offers it: its name there (a path through the component's own scene, if it has one),
+// and the matrix that scene gives it.
+interface Offer {
+  name: string; part: string; component: string; call: string; color: string; material: string | null;
+  group: string | null; reference: boolean; inner: number[] | null;
+}
+const own = (manifest: Manifest, rel: string): Offer[] => manifest.parts.map((p) => ({
+  name: p.name, part: p.name, component: rel, call: p.call, color: p.color ?? '#999999', material: null,
+  group: p.group ?? null, reference: !!p.reference, inner: null,
+}));
+// what one instance shows, before its own placement: its component's offers, cut down to "parts"
+function shown(inst: Instance, manifest: Manifest, rel: string, uses: Uses): Offer[] {
+  const c = inst.use !== undefined && inst.use !== '.' ? uses[inst.use] : null;
+  const all = c ? (c.error ? [] : offered(c)) : own(manifest, rel);
+  return inst.parts ? all.filter((o) => inst.parts!.includes(o.name)) : all;
+}
+// A component with no scene.json offers its parts where its .scad draws them. One with a scene.json offers what
+// that scene places, scratch left out: "a component's scene is what it contributes when used".
+function offered(c: Component): Offer[] {
+  if (!c.scene) return own(c.manifest, c.rel);
+  const out: Offer[] = [];
+  for (const inst of c.scene.instances) {
+    if (inst.scratch) continue;
+    const m = placementMatrix(inst);
+    for (const o of shown(inst, c.manifest, c.rel, c.uses))
+      out.push({ ...o, name: `${inst.id}.${o.name}`, color: inst.color ?? o.color, material: inst.material ?? o.material,
+                 inner: o.inner ? mulMatrix(m, o.inner) : m });
+  }
+  return out;
+}
+// the names an instance of this component can list in "parts"
+export const offers = (c: Component): string[] => offered(c).map((o) => o.name);
+// the same for each instance of a scene: instance id -> names (the viewer's split, the CLI's)
+export function sceneOffers(scene: Scene, manifest: Manifest, uses: Uses = {}): Record<string, string[]> {
+  return Object.fromEntries(scene.instances.map((inst) => [inst.id, shown({ ...inst, parts: undefined }, manifest, '.', uses).map((o) => o.name)]));
+}
+
 // The flat list of placed parts, instance by instance, parts in viewer.json order. Scratch instances are left
 // out when scratch is false (the generated .scad, later the check and the export); the viewer shows them.
-export function resolveScene(scene: Scene, manifest: Manifest, { scratch = true } = {}): Placed[] {
+export function resolveScene(scene: Scene, manifest: Manifest, { scratch = true, uses = {} as Uses } = {}): Placed[] {
   const out: Placed[] = [];
   for (const inst of scene.instances) {
     if (inst.scratch && !scratch) continue;
-    for (const p of manifest.parts) {
-      if (inst.parts && !inst.parts.includes(p.name)) continue;
+    for (const o of shown(inst, manifest, '.', uses)) {
       out.push({
-        path: `${inst.id}.${p.name}`, instance: inst.id, part: p.name, call: p.call,
-        color: inst.color ?? p.color ?? '#999999', material: inst.material ?? null, group: p.group ?? null,
-        reference: !!p.reference, scratch: !!inst.scratch,
+        path: `${inst.id}.${o.name}`, instance: inst.id, part: o.part, component: o.component,
+        src: o.component === '.' ? o.part : `${o.component}/${o.part}`, inner: o.inner, call: o.call,
+        color: inst.color ?? o.color, material: inst.material ?? o.material, group: o.group,
+        reference: o.reference, scratch: !!inst.scratch,
         at: vec(inst.at, 0), rot: vec(inst.rot, 0), mirror: vec(inst.mirror, 0),
         scale: typeof inst.scale === 'number' ? [inst.scale, inst.scale, inst.scale] : vec(inst.scale, 1),
       });
     }
   }
   return out;
+}
+// every other folder a scene builds from, each once, however deep
+export function components(uses: Uses, out = new Map<string, Component>()): Component[] {
+  for (const c of Object.values(uses)) if (!c.error && !out.has(c.dir)) { out.set(c.dir, c); components(c.uses, out); }
+  return [...out.values()];
 }
 
 // The file's text: fields in one order, one instance per line, so a drag is a one-line diff.
@@ -196,13 +261,15 @@ export function freeId(scene: Scene, name: string): string {
 // nothing moves; the source stops showing it (a source showing every part gets a parts list of the others, in
 // viewer.json order). The new id is `to`, else one made from the part's name (lid, lid_2, ...). Refused for a part
 // the instance does not show, and for an instance showing only that part (there is nothing to split it from).
-export function splitInstance(scene: Scene, manifest: Pick<Manifest, 'parts'>, id: string, part: string, to?: string): Scene {
-  const s = clone(scene), src = find(s, id), names = manifest.parts.map((p) => p.name);
-  if (!names.includes(part)) throw new SceneError([`no part "${part}" (viewer.json has ${names.join(', ')})`]);
+// has: the model's own parts, or (a scene with other folders) each instance's names, as sceneOffers gives them.
+export function splitInstance(scene: Scene, has: Pick<Manifest, 'parts'> | Record<string, string[]>, id: string, part: string, to?: string): Scene {
+  const s = clone(scene), src = find(s, id);
+  const names: string[] = Array.isArray((has as any).parts) ? (has as any).parts.map((p: any) => p.name) : (has as Record<string, string[]>)[id] ?? [];
+  if (!names.includes(part)) throw new SceneError([`no part "${part}" (${id} has ${names.join(', ') || 'none'})`]);
   const shown = src.parts ?? names;
   if (!shown.includes(part)) throw new SceneError([`${id} does not show "${part}" (it shows ${shown.join(', ')})`]);
   if (shown.length < 2) throw new SceneError([`${id} shows only "${part}": nothing to split it from (move ${id} itself)`]);
-  to ??= freeId(s, part);
+  to ??= freeId(s, part.split('.').pop()!);
   taken(s, to);
   const inst: Instance = { ...structuredClone(src), id: to, parts: [part] };
   src.parts = shown.filter((p) => p !== part);

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "instances": [
+    { "id": "left", "use": "../hinge_box" },
+    { "id": "right", "use": "../hinge_box", "at": [140, 0, 0], "mirror": [1, 0, 0], "color": "#c8823a" }
+  ]
+}

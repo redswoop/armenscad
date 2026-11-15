@@ -10,12 +10,13 @@ import { parseParams, dependencies, type Param } from './source.ts';
 
 // viewer.json: the .scad file, its defines, its parts (module calls)
 export interface ManifestPart { name: string; call: string; color?: string; group?: string | null; reference?: boolean }
-export interface Manifest { file: string; defines?: Record<string, unknown>; parts: ManifestPart[]; reference?: string }
+// An assembly folder has no file and no parts of its own: everything it shows comes from its scene.json.
+export interface Manifest { file?: string; defines?: Record<string, unknown>; parts: ManifestPart[]; reference?: string }
 
 export interface LoadedModel {
   dir: string;
   manifest: Manifest;
-  scadPath: string;
+  scadPath: string | null;   // null: no .scad of its own (an assembly)
   source: string;
   params: Param[];
 }
@@ -23,11 +24,16 @@ export interface LoadedModel {
 export async function loadManifest(host: Host, dir: string): Promise<Manifest> {
   const text = await readText(host.files, path.join(dir, 'viewer.json'));
   if (text == null) throw new Error(`no viewer.json in ${dir}`);
-  return JSON.parse(text);
+  const m = JSON.parse(text);
+  if (!m || typeof m !== 'object' || Array.isArray(m)) throw new Error(`viewer.json in ${dir} must be an object`);
+  m.parts ??= [];
+  if (m.parts.length && !m.file) throw new Error(`viewer.json in ${dir} lists parts but names no "file"`);
+  return m;
 }
 
 export async function loadModel(host: Host, dir: string): Promise<LoadedModel> {
   const manifest = await loadManifest(host, dir);
+  if (!manifest.file) return { dir, manifest, scadPath: null, source: '', params: [] };
   const scadPath = path.join(dir, manifest.file);
   const source = await readText(host.files, scadPath);
   if (source == null) throw Object.assign(new Error(`ENOENT: no such file or directory, open '${scadPath}'`), { code: 'ENOENT' });
@@ -36,11 +42,12 @@ export async function loadModel(host: Host, dir: string): Promise<LoadedModel> {
   return { dir, manifest, scadPath, source, params };
 }
 
-// What the viewer's state.parts holds for one part. ms: how long its OpenSCAD run took, also when it came from the
+// What the viewer's state.parts holds for one part. src: what a placed part names to find it (the part's name
+// here; the viewer's server lists another folder's parts as <folder>/<name>, core/scene.ts Placed.src). ms: how long its OpenSCAD run took, also when it came from the
 // cache (null for a cache entry from before build times were kept); key: the cache key, shared by every part
 // that renders the same harness, so a readout can count one build once.
 export interface BuiltPart {
-  name: string; call: string; color: string; group: string | null; reference: boolean; module: string | null;
+  name: string; src: string; call: string; color: string; group: string | null; reference: boolean; module: string | null;
   ok: boolean; empty: boolean; tris: number; ms: number | null; key: string; log: string; version: number;
 }
 interface CacheEntry { code: number; output: string; tris: number; ms?: number }
@@ -68,7 +75,7 @@ export interface BuildOptions { overrides?: Record<string, unknown>; keep?: Set<
 export async function buildParts(host: Host, m: LoadedModel, cacheDir: string, { overrides = {}, keep = new Set(), fresh = false }: BuildOptions = {}) {
   const { files, builder } = host;
   const defines = { ...(m.manifest.defines ?? {}), ...overrides };
-  const digest = await sourceDigest(host, m.scadPath);
+  const digest = m.scadPath ? await sourceDigest(host, m.scadPath) : '';
   const running = new Map<string, Promise<CacheEntry>>();     // two parts with the same harness build once
   const render = async (key: string, text: string): Promise<CacheEntry> => {
     const meta = path.join(cacheDir, `${key}.json`), out = path.join(cacheDir, `${key}.stl`);
@@ -90,13 +97,13 @@ export async function buildParts(host: Host, m: LoadedModel, cacheDir: string, {
   };
   const keys = new Map<string, string>();             // part name -> key, to serve parts/<name>.stl
   const parts: BuiltPart[] = await Promise.all(m.manifest.parts.map(async (p) => {
-    const text = harness(m.scadPath, defines, p.call);
+    const text = harness(m.scadPath!, defines, p.call);
     const key = cacheKey(builder.id, digest, text);
     keys.set(p.name, key);
     if (!running.has(key)) running.set(key, render(key, text));
     const e = await running.get(key)!;
     const mod = p.call.match(/^\s*(\w+)\s*\(/);
-    return { name: p.name, call: p.call, color: p.color ?? '#999999', group: p.group ?? null, reference: !!p.reference, module: mod?.[1] ?? null,
+    return { name: p.name, src: p.name, call: p.call, color: p.color ?? '#999999', group: p.group ?? null, reference: !!p.reference, module: mod?.[1] ?? null,
              ok: e.code === 0 && e.tris > 0, empty: /top level object is empty/i.test(e.output), tris: e.tris, ms: e.ms ?? null, key,
              log: buildLog(e.output), version: Date.now() };   // empty: built fine but produced nothing (a part that is off in this configuration)
   }));

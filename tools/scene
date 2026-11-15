@@ -2,10 +2,11 @@
 // armenscad scene: list and edit a model's scene.json (placed copies of its parts) and write _scene.scad.
 // Writes go through the core, the same writer as the viewer's server; an open viewer picks them up over SSE.
 //   scene <model-folder>                              list instances, one line each, as field=value
-//   scene <model-folder> add <id> [field=value ...]   a new instance of the model's parts (all, or parts=a,b)
+//   scene <model-folder> add <id> [field=value ...]   a new instance of the model's parts (all, or parts=a,b), or of
+//                                                     another folder's: use=../knee (relative to the model folder)
 //   scene <model-folder> copy <from> <id> [field=value ...]
 //   scene <model-folder> move <id> dx,dy,dz           by a delta; set <id> at=x,y,z puts it somewhere
-//   scene <model-folder> set <id> field=value ...     fields: parts at rot scale mirror color material scratch;
+//   scene <model-folder> set <id> field=value ...     fields: use parts at rot scale mirror color material scratch;
 //                                                     field= (empty) clears one back to its default
 //   scene <model-folder> split <id> <part> [new-id]   pull one part out into an instance of its own, placed and
 //                                                     dressed as <id> (nothing moves); new-id defaults to the part's name
@@ -15,7 +16,7 @@
 import path from 'node:path';
 import {
   readScene, editScene, writeSceneScad, addInstance, copyInstance, moveInstance, removeInstance, setFields, parseField,
-  splitInstance, loadManifest, SceneError, StaleError, type Fields, type Instance,
+  splitInstance, SceneError, StaleError, type Fields, type Instance,
 } from '../core/index.ts';
 import { bunHost } from '../core/bun.ts';
 
@@ -60,8 +61,8 @@ try {
     else if (cmd === 'set') { need(2); const f = fields(args.slice(1)); edit = (s: any) => setFields(s, args[0], f); }
     else if (cmd === 'rm') { need(1); edit = (s: any) => removeInstance(s, args[0]); }
     else if (cmd === 'split') {
-      need(2); const manifest = await loadManifest(host, dir);
-      edit = (s: any) => { const n = splitInstance(s, manifest, args[0], args[1], args[2]); made = n.instances[n.instances.findIndex((x) => x.id === args[0]) + 1].id; return n; };
+      need(2); const has = (await readScene(host, dir)).offers;
+      edit = (s: any) => { const n = splitInstance(s, has, args[0], args[1], args[2]); made = n.instances[n.instances.findIndex((x) => x.id === args[0]) + 1].id; return n; };
     }
     else usage();
     const r = await editScene(host, dir, edit!);

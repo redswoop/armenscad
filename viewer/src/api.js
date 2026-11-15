@@ -9,9 +9,11 @@ const send = (url, method, body) => fetch(url, { method, headers: { 'content-typ
 
 export const getModels = () => fetch('/api/models').then(j).catch(() => []);
 export const getState = () => fetch(`${API}/state`).then(j);
-export const getSource = (module) => fetch(`${API}/source?module=${module}`).then(j);
+// model: another folder's (a part the scene shows from it), default this one's
+export const getSource = (module, model = MODEL) => fetch(`/api/${model}/source?module=${module}`).then(j);
 export const postOverrides = (ov) => send(`${API}/overrides`, 'POST', ov);
-export const partUrl = (name, version) => `${API}/parts/${name}.stl?v=${version}`;
+// src: a built part's src (state.parts): its name, or <folder>/<name> for a part of another folder the scene uses
+export const partUrl = (src, version) => `${API}/stl?src=${encodeURIComponent(src)}&v=${version}`;
 export const refStlUrl = () => `${API}/ref`;
 
 // reference images in <model>/ref/
@@ -27,7 +29,8 @@ export const putOverlay = (id, o) => send(`${API}/annotations/overlays/${id}`, '
 export const deleteOverlay = (id) => fetch(`${API}/annotations/overlays/${id}`, { method: 'DELETE' }).then(j);
 
 // scene.json, through the core: GET { hash, exists, scene, parts, errors }; parts is the flat placed list
-// (instance.part with at/rot/mirror/scale). A write names the hash it was based on (base) and resolves with
+// (instance.part with at/rot/mirror/scale, src naming its built part, inner for what a used folder's own scene does
+// to it); offers is instance id -> the part names it can show. A write names the hash it was based on (base) and resolves with
 // { ok, hash }, or { error, hash } when someone else wrote first (409: reload, reapply) or { error, errors } (400).
 export const getScene = () => fetch(`${API}/scene`).then(j);
 export const putScene = (scene, base) => send(`${API}/scene`, 'PUT', { base, scene });

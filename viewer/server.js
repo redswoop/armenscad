@@ -101,6 +101,13 @@ class Model {
     this.camera = null;         // what the browser reports it is showing (PUT /view)
     this.stl = () => null;      // part name -> its cached STL, from the last build
     this.keys = new Set();      // that build's cache keys, kept through the next build's prune
+    // A scene may show parts of other folders (scene.json "use"). Each folder is built by its own Model, once:
+    // this one asks them for their parts as the files say (base: no Parameters-panel overrides) and rebuilds
+    // when one of them does. base: this model's own such build, for the models that use it.
+    this.base = null;           // { parts, stl } of the last build without overrides
+    this.uses = new Map();      // component rel ("../knee") -> its Model, as of the last build
+    this.dependents = new Set();   // Models whose scenes use this one
+    this.waiting = [];          // resolvers for whenBuilt()
     this.fresh = false;         // POST /build: render again even what the cache has
     // scene.json: written through the core (one writer at a time here); sceneHash is the last text we wrote or
     // sent, so our own write echoing back through the watcher is not sent twice
@@ -172,7 +179,7 @@ class Model {
   // ---- scene: <model>/scene.json, through the core ----
   async scene() {
     try { return await readScene(host, this.dir); }
-    catch (e) { return { hash: null, exists: false, scene: null, parts: [], errors: [String(e.message ?? e)] }; }   // no readable viewer.json
+    catch (e) { return { hash: null, exists: false, scene: null, parts: [], offers: {}, components: [], errors: [String(e.message ?? e)] }; }   // no readable viewer.json
   }
 
   // An outside edit (the CLI, Claude, a hand edit): send it, no rebuild; placement never runs OpenSCAD.
@@ -182,6 +189,14 @@ class Model {
     this.sceneHash = st.hash;
     console.log(`[${this.name}] scene.json changed on disk, ${st.hash}`);
     this.broadcast('scene', st);
+    this.sceneChanged(st);
+  }
+  // A scene that now uses a folder it did not (or no longer does) needs that folder's parts: build, which is
+  // only the asking when everything is cached. And whoever uses this model shows this scene: they build too.
+  sceneChanged(st) {
+    const now = st.components.map((c) => c.rel).sort().join('\n'), was = [...this.uses.keys()].sort().join('\n');
+    if (now !== was) this.scheduleBuild();
+    for (const d of this.dependents) d.scheduleBuild();
   }
 
   // write(base) -> new hash; runs one at a time, then sends the scene to every tab
@@ -191,6 +206,7 @@ class Model {
       const st = await this.scene();
       this.sceneHash = st.hash;
       this.broadcast('scene', st);
+      this.sceneChanged(st);
       return { hash: st.hash };
     };
     const p = this.sceneQueue.then(run, run);
@@ -247,7 +263,35 @@ class Model {
     if (event === 'built') console.log(`[${this.name}] built in ${data.buildMs}ms, notified ${sent} client(s)`);
   }
 
-  scheduleBuild() { clearTimeout(this.buildTimer); this.buildTimer = setTimeout(() => this.build(), 250); }
+  scheduleBuild() { clearTimeout(this.buildTimer); this.buildTimer = setTimeout(() => { this.buildTimer = null; this.build(); }, 250); }
+  // resolves once a build has finished and none is running or about to
+  whenBuilt() {
+    if (this.state.builtAt && !this.state.building && !this.buildTimer && !this.buildQueued) return Promise.resolve();
+    return new Promise((res) => this.waiting.push(res));
+  }
+  // The parts of the other folders the scene uses, from their own Models (built there, cached there, watched
+  // there). Each is listed under src <rel>/<name>, which is what the scene's placed parts name.
+  async usedParts() {
+    const st = await this.scene();
+    const parts = [], stls = new Map(), uses = new Map();
+    for (const c of st.components) {
+      const name = path.relative(ROOT, c.dir).split(path.sep).join('/');
+      const m = name.startsWith('..') ? null : await getModel(name);
+      if (!m) throw new Error(`the scene uses ${c.rel}, which is ${name.startsWith('..') ? `outside the workspace (${ROOT})` : 'not a model the viewer can open'}`);
+      uses.set(c.rel, m);
+      await m.whenBuilt();
+      m.dependents.add(this);       // after the wait: its finishing build would only ask this one to build again
+      if (m.state.error) throw new Error(`${c.rel}: ${m.state.error}`);
+      for (const p of m.base?.parts ?? []) {
+        const src = `${c.rel}/${p.name}`;
+        parts.push({ ...p, src, component: c.rel, model: name, file: m.state.file });
+        stls.set(src, m.base.stl(p.name));
+      }
+    }
+    for (const [rel, m] of this.uses) if (uses.get(rel) !== m) m.dependents.delete(this);
+    this.uses = uses;
+    return { parts, stls };
+  }
 
   async build() {
     const state = this.state;
@@ -262,10 +306,17 @@ class Model {
       state.source = m.source;
       state.params = m.params;
       const fresh = this.fresh; this.fresh = false;
-      const built = await buildParts(host, m, this.cache, { overrides: state.overrides, keep: this.keys, fresh });
+      // as the files say, then (only while the Parameters panel has values in play) with those on top
+      const base = await buildParts(host, m, this.cache, { keep: this.keys, fresh });
+      const tried = Object.keys(state.overrides ?? {}).length > 0;
+      const built = tried ? await buildParts(host, m, this.cache, { overrides: state.overrides, keep: new Set([...this.keys, ...base.keys.values()]), fresh }) : base;
+      this.base = base;
+      this.keys = new Set([...base.keys.values(), ...built.keys.values()]);
       state.parts = built.parts;
       this.stl = built.stl;
-      this.keys = new Set(built.keys.values());
+      const used = await this.usedParts();
+      state.parts = [...built.parts, ...used.parts];
+      this.stl = (src) => used.stls.get(src) ?? built.stl(src);
     } catch (e) {
       state.error = String(e.message ?? e);
     }
@@ -273,7 +324,9 @@ class Model {
     state.builtAt = new Date().toISOString();
     state.buildMs = Math.round(performance.now() - t0);
     this.broadcast('built', this.publicState());
-    if (this.buildQueued) { this.buildQueued = false; this.build(); }
+    if (this.buildQueued) { this.buildQueued = false; this.build(); return; }
+    for (const res of this.waiting.splice(0)) res();
+    for (const d of this.dependents) d.scheduleBuild();
   }
 }
 
@@ -308,15 +361,16 @@ Bun.serve({
     if (p === '/api/models') return json(await modelList());
     if (p === '/api/root') return json({ root: ROOT, port: PORT });
 
-    // /api/<model>/<route>, where <model> is one or two path segments
-    const mm = p.match(/^\/api\/([^/]+)(?:\/([^/]+))?\/(.*)$/);
-    if (!mm) return new Response('not found', { status: 404 });
-    // a sub-model (<toy>/<name>/viewer.json) wins over a route of the same name on the parent
-    let name, route, model = null;
-    if (mm[2] && await exists(path.join(ROOT, mm[1], mm[2], 'viewer.json'))) {
-      name = `${mm[1]}/${mm[2]}`; route = mm[3]; model = await getModel(name);
+    // /api/<model>/<route>, where <model> is one to MAX_DEPTH path segments. The deepest folder with a viewer.json
+    // wins, so a sub-model (<toy>/<name>) is found before a route of the same name on its parent.
+    if (!p.startsWith('/api/')) return new Response('not found', { status: 404 });
+    let segs;
+    try { segs = p.slice(5).split('/').map(decodeURIComponent); } catch { return new Response('not found', { status: 404 }); }
+    let name = segs[0], route = segs.slice(1).join('/'), model = null;
+    for (let n = Math.min(MAX_DEPTH, segs.length - 1); n >= 1 && !model; n--) {
+      const cand = segs.slice(0, n).join('/');
+      if (MODEL_RE.test(cand) && await exists(path.join(ROOT, cand, 'viewer.json'))) { name = cand; route = segs.slice(n).join('/'); model = await getModel(cand); }
     }
-    if (!model) { name = mm[1]; route = mm[2] ? `${mm[2]}/${mm[3]}` : mm[3]; model = await getModel(name); }
     if (!model) return json({ error: `no model "${name}" (needs <scad>/${name}/viewer.json)` }, 404);
     const state = model.state;
 
@@ -334,9 +388,13 @@ Bun.serve({
       });
       return new Response(stream, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } });
     }
-    if (route.startsWith('parts/')) {
-      const name = path.basename(route, '.stl');
-      return new Response(Bun.file(model.stl(name) ?? path.join(model.cache, `${name}.stl`)), { headers: { 'cache-control': 'no-store' } });
+    // a built part's STL: stl?src=<state.parts[].src> (the part's name, or <folder>/<name> for a part of another
+    // folder the scene uses); parts/<name>.stl is the older form, own parts only
+    if (route === 'stl' || route.startsWith('parts/')) {
+      const src = route === 'stl' ? url.searchParams.get('src') ?? '' : path.basename(route, '.stl');
+      const file = model.stl(src);
+      if (!file) return json({ error: `no built part "${src}"` }, 404);
+      return new Response(Bun.file(file), { headers: { 'cache-control': 'no-store' } });
     }
     if (route === 'ref' && state.reference) return new Response(Bun.file(path.join(model.dir, state.reference)));
 

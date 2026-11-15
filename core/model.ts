@@ -7,7 +7,8 @@ import { loadManifest, type Manifest } from './build.ts';
 import { sceneScad } from './scad.ts';
 import {
   SCENE_FILE, SCENE_SCAD, SceneError, StaleError, defaultScene, formatScene, resolveScene, validateScene,
-  type Placed, type Scene,
+  sceneOffers, components,
+  type Placed, type Scene, type Uses, type Component,
 } from './scene.ts';
 
 // Content hash of the file's text; 'none' while there is no file. No counter in the file, so nothing churns in git.
@@ -22,6 +23,35 @@ export interface SceneState {
   scene: Scene | null;     // null when the file is not JSON
   parts: Placed[];         // empty while there are errors
   errors: string[];
+  offers: Record<string, string[]>;            // instance id -> the names it can show (its "parts" choices)
+  components: { rel: string; dir: string }[];  // the other folders the scene builds from, each once, however deep
+}
+
+// The other folders a scene uses, loaded: each one's viewer.json, its scene.json if it has one, and what that
+// uses in turn. A folder that cannot be used comes back with an error (the scene's validation reports it); a
+// folder that uses itself, straight or through others, is one of those. top: the folder whose scene is being
+// resolved (a component's rel is from there); chain: the folders on the way down, to catch a loop.
+export async function loadUses(host: Host, dir: string, scene: unknown, top = dir, chain: string[] = [dir]): Promise<Uses> {
+  const uses: Uses = {};
+  const list = Array.isArray((scene as any)?.instances) ? (scene as any).instances : [];
+  for (const inst of list) {
+    const use = inst?.use;
+    if (typeof use !== 'string' || !use || use === '.' || use in uses) continue;
+    if (path.isAbsolute(use) || use.includes('\\')) continue;      // not a folder beside this one: validation says so
+    const target = path.resolve(dir, use);
+    const c: Component = { rel: path.relative(top, target).split(path.sep).join('/') || '.', dir: target, manifest: { parts: [] }, scene: null, uses: {} };
+    uses[use] = c;
+    if (chain.includes(target)) { c.error = `a loop: ${[...chain.slice(chain.indexOf(target)), target].map((d) => path.basename(d)).join(' uses ')}`; continue; }
+    try { c.manifest = await loadManifest(host, target); }
+    catch (e: any) { c.error = (await host.files.size(path.join(target, 'viewer.json'))) == null ? 'no viewer.json there' : String(e.message ?? e); continue; }
+    const text = await readText(host.files, path.join(target, SCENE_FILE));
+    if (text == null) continue;
+    try { c.scene = JSON.parse(text); } catch (e: any) { c.error = `its scene.json is not JSON: ${e.message}`; continue; }
+    c.uses = await loadUses(host, target, c.scene, top, [...chain, target]);
+    const errs = validateScene(c.scene, c.manifest, c.uses);
+    if (errs.length) c.error = `its scene.json has ${errs.length === 1 ? 'an error' : `${errs.length} errors`}: ${errs[0]}`;
+  }
+  return uses;
 }
 
 export async function readScene(host: Host, dir: string, manifest?: Manifest): Promise<SceneState> {
@@ -29,11 +59,17 @@ export async function readScene(host: Host, dir: string, manifest?: Manifest): P
   const text = await readText(host.files, path.join(dir, SCENE_FILE));
   const hash = sceneHash(text);
   let scene: any = null;
-  let errors: string[];
+  let errors: string[], uses: Uses = {};
   if (text == null) scene = defaultScene(path.basename(dir));
-  try { scene ??= JSON.parse(text!); errors = validateScene(scene, manifest); }
+  try { scene ??= JSON.parse(text!); uses = await loadUses(host, dir, scene); errors = validateScene(scene, manifest, uses); }
   catch (e: any) { errors = [`scene.json is not JSON: ${e.message}`]; }
-  return { hash, exists: text != null, scene, parts: errors.length ? [] : resolveScene(scene, manifest), errors };
+  const ok = !errors.length;
+  return {
+    hash, exists: text != null, scene, errors,
+    parts: ok ? resolveScene(scene, manifest, { uses }) : [],
+    offers: ok ? sceneOffers(scene, manifest, uses) : {},
+    components: ok ? components(uses).map((c) => ({ rel: c.rel, dir: c.dir })) : [],
+  };
 }
 
 // Write a whole scene, if the file is still what the caller last read (base). Refused with StaleError when it
@@ -43,7 +79,7 @@ export async function writeScene(host: Host, dir: string, scene: Scene, base: st
   const file = path.join(dir, SCENE_FILE);
   const hash = sceneHash(await readText(host.files, file));
   if (hash !== base) throw new StaleError(base, hash);
-  const errors = validateScene(scene, manifest);
+  const errors = validateScene(scene, manifest, await loadUses(host, dir, scene));
   if (errors.length) throw new SceneError(errors);
   const text = formatScene(scene);
   await host.files.write(file, text);
@@ -66,6 +102,11 @@ export async function writeSceneScad(host: Host, dir: string, { scratch = false 
   const manifest = await loadManifest(host, dir);
   const st = await readScene(host, dir, manifest);
   if (st.errors.length) throw new SceneError(st.errors);
+  // Parts of other folders cannot be module calls here: no generated file includes two components. They will
+  // come in as import() of each built STL (the spec's phase 2).
+  const other = [...new Set(st.parts.filter((p) => p.component !== '.' && (scratch || !p.scratch)).map((p) => p.instance))];
+  if (other.length) throw new SceneError([`_scene.scad is not written yet for a scene that uses other folders (${other.join(', ')}); the viewer shows it`]);
+  if (!manifest.file) throw new SceneError(['this model has no .scad of its own, so there is nothing for _scene.scad to include']);
   const text = sceneScad(manifest, resolveScene(st.scene!, manifest, { scratch }));
   const out = path.join(dir, SCENE_SCAD);
   await host.files.write(out, text);

@@ -7,6 +7,8 @@ scene (one mesh per placed part, transform audit) and edits it by hand: the ligh
 the Instance panel (typed at, rot, mirror, scale with its warning, colour, material, scratch, rename; `instance.js`),
 duplicate / split out / remove, and undo / redo over every scene change including outside ones, hash-checked (`history.js`).
 Not in phase 0 yet: the check and export warning on a scaled instance (phase 2 brings both).
+Built 2026-11-15, ahead of phases 1 and 2: the plain half of phase 3, instances of other folders (`"use": "../knee"`),
+see "Built 2026-11-15" below.
 Worked out with Armen on 2026-11-14 after a few weeks of daily use.
 Covers backlog items 1 and 2 in `docs/NOTES.md` (moving parts by hand, combined projects). Builds the ground
 `docs/TODO-kinematics-2026-10-26.md` (joints, poses) stands on.
@@ -270,6 +272,37 @@ Viewer: every module that assumes a part sits where the `.scad` put it, with one
 | 2 | `_scene.scad` by STL import; the check as a core operation (Manifold); render / export read the scene; scale warnings. |
 | 3 | Assemblies: `use` across folders, cross-folder watch, drill down and back; re-exports last. First real use: devastator (see question 3). |
 | 4 | Joints and named poses: `docs/TODO-kinematics-2026-10-26.md`, with attach points echoed from each `.scad` and joints joined in the assembly (decided 2026-11-14). |
+
+## Built 2026-11-15: instances of other folders
+
+The plain half of phase 3, pulled forward for devastator. Example: `examples/hinge_pair`.
+
+- **`use` names a folder relative to the scene's own** (`"../knee"`, `"../toys/hook"`). It must hold a `viewer.json`.
+  Missing folders, a broken `scene.json` in one, and loops are scene errors that name the instance.
+- **What a folder offers.** With no `scene.json` of its own: its parts where its `.scad` draws them, addressed
+  `instance.part`. With one: what that scene places, scratch left out, addressed `instance.inner.part`, each with
+  the matrix that scene gives it (`Placed.inner`; `placedMatrix` in `core/placement.ts`). `parts` on an instance
+  picks from those names. So a part moved on a component's own page moves in every scene that uses the component,
+  unless that instance is scratch: the spec's rule, and a thing to watch on leaf folders.
+- **An assembly folder** is a `viewer.json` with no `file` (`{}`) plus a `scene.json`. A folder may also have both
+  its own parts and instances of others (question 4: both allowed).
+- **A mesh-only component needs nothing new** (question 5): a folder with a three-line `.scad` that `import()`s the
+  STL with its unit scale and turn, and a `viewer.json` naming that module as a `reference` part. It builds with
+  stock OpenSCAD and its frame fix lives in OpenSCAD, where a multmatrix is allowed.
+- **Builds.** Each folder is built by its own Model in the viewer's server, in its own cache, watched there; a
+  scene asks those Models for their parts as the files say (never the Parameters panel's try-out values) and
+  rebuilds when one of them does. A built part is named by `src`: the part's name, or `<folder>/<name>`.
+- **Viewer.** Same gizmo, Instance panel, duplicate, split out and undo. Double-click a row to open the folder a
+  part comes from; the code panel shows that folder's source.
+- **Not yet:** value overrides (`set`), so two instances of one folder cannot differ in a value; `_scene.scad`
+  for such a scene (refused with a message, phase 2); adding an instance of another folder from the viewer (the
+  CLI does it: `armenscad scene <m> add knee_L use=../knee`); re-exports.
+- **Found on devastator the same day:** its legs need both of those first. The left and right knee differ by a
+  value (`who`), which is `set` (phase 1). And `legs.scad` computes where the knee sits from the hip's parameters
+  (`nu_knee()`), where a scene holds literal numbers that go stale when the hip changes: that is attach points
+  (phase 4). So phase 1 is next, and the legs scene can only be approximate until attach points exist.
+- **Also fixed:** a model three folders below the workspace root was listed but did not load (the route took
+  two segments at most).
 
 ## Not in scope
 

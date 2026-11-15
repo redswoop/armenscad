@@ -190,7 +190,8 @@ export function splitTarget() {
   const { part, group } = getSelection();
   if (!part || group || !sceneOk()) return null;
   const pl = meshes.get(part)?.userData.placed; if (!pl) return null;
-  return (sceneState().parts ?? []).filter((p) => p.instance === pl.instance).length > 1 ? { id: pl.instance, part: pl.part } : null;
+  // the part as its instance names it: the path below the instance id (a used folder's own scene adds a level)
+  return (sceneState().parts ?? []).filter((p) => p.instance === pl.instance).length > 1 ? { id: pl.instance, part: pl.path.slice(pl.instance.length + 1) } : null;
 }
 // one undo step through the same write path as Duplicate; the part's hidden state and its notes go with it
 export async function splitOut() {
@@ -198,8 +199,8 @@ export async function splitOut() {
   if (!t) { const id = selectedInstance(); if (id && getSelection().part) say(`${id} shows only this part: nothing to split it from (move ${id} itself)`, true); return; }
   let to = null;
   const r = await history.change(`split ${t.part} out of ${t.id}`, (s) => {
-    to = freeId(s, t.part);           // on the scene the write is based on (a 409 rebuilds it on the fresh one)
-    return splitInstance(s, { parts: app.state.parts }, t.id, t.part, to);
+    to = freeId(s, t.part.split('.').pop());           // on the scene the write is based on (a 409 rebuilds it on the fresh one)
+    return splitInstance(s, sceneState().offers ?? {}, t.id, t.part, to);
   });
   if (!r.ok) { say(`split ${t.part} out of ${t.id}: ${r.error}`, true); return; }
   moveHidden(`${t.id}.${t.part}`, `${to}.${t.part}`);
