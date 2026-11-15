@@ -82,6 +82,17 @@ canvas { display:block; width:100%; height:100%; }
 #pick ul li a { color:var(--accent); font: calc(15px * var(--fs)) var(--mono); text-decoration:none; }
 #pick ul li a:hover { text-decoration:underline; }
 #pick .err { color:var(--bad); }
+/* the workspace by project: a project and a group inside it fold (details); rows inside step in */
+#pick { overflow:auto; }
+#pick ul li.fold { display:block; padding:0; }
+#pick ul li.fold > details > summary { display:flex; gap:12px; align-items:baseline; padding:6px 0; cursor:pointer; list-style:none; }
+#pick ul li.fold > details > summary::-webkit-details-marker { display:none; }
+#pick ul li.fold > details > summary::before { content:'▸'; color:var(--dim); width:1ch; }
+#pick ul li.fold > details[open] > summary::before { content:'▾'; }
+#pick ul li.fold > details > summary b { font: calc(15px * var(--fs)) var(--mono); font-weight:600; color:var(--fg); }
+#pick ul li.fold > details > ul { margin:0 0 6px 22px; border-top:1px solid var(--line); }
+#pick ul li.fold > details > ul > li:last-child { border-bottom:none; }
+#pick ul li.asm a { font-weight:700; }
 h2 label.inl { text-transform:none; letter-spacing:0; font-size:calc(12px * var(--fs)); display:flex; align-items:center; gap:4px; margin-left:auto; }
 
 /* ---------- drawing layer + toolbar over the render ---------- */

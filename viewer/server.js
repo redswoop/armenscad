@@ -338,17 +338,47 @@ const json = (o, status = 200) => new Response(JSON.stringify(o), { status, head
 // page never notices). Disable the idle timeout and send a heartbeat.
 setInterval(() => { for (const m of models.values()) m.broadcast('ping', { t: Date.now() }); }, 15000);
 
+// Each model, with what the front page sorts by, read from its two files without building anything:
+// uses: the models its scene.json places (directly); assembly: it places any; reference: every part of its own is
+// a reference mesh (a toy scan, a bought part) and it has some.
 async function modelList() {
   const names = await listModelNames();
   return Promise.all(names.map(async (name) => {
-    const m = models.get(name);
-    let file = null;
-    try { file = JSON.parse(await readFile(path.join(ROOT, name, 'viewer.json'), 'utf8')).file ?? null; } catch {}
-    if (!m) return { name, file, loaded: false };
+    const m = models.get(name), dir = path.join(ROOT, name);
+    let file = null, reference = false, uses = [];
+    try {
+      const v = JSON.parse(await readFile(path.join(dir, 'viewer.json'), 'utf8'));
+      file = v.file ?? null;
+      reference = Array.isArray(v.parts) && v.parts.length > 0 && v.parts.every((p) => p.reference);
+    } catch {}
+    try {
+      const sc = JSON.parse(await readFile(path.join(dir, SCENE_FILE), 'utf8'));
+      for (const inst of sc.instances ?? []) {
+        if (typeof inst?.use !== 'string' || inst.use === '.' || path.isAbsolute(inst.use)) continue;
+        const u = path.relative(ROOT, path.resolve(dir, inst.use)).split(path.sep).join('/');
+        if (u && !u.startsWith('..') && u !== name && !uses.includes(u)) uses.push(u);
+      }
+    } catch {}
+    const what = { name, file, reference, assembly: uses.length > 0, uses };
+    if (!m) return { ...what, loaded: false };
     const s = m.state;
-    return { name, file: s.file ?? file, loaded: true, building: s.building, builtAt: s.builtAt, error: s.error,
+    return { ...what, file: s.file ?? file, loaded: true, building: s.building, builtAt: s.builtAt, error: s.error,
              parts: s.parts.length, failed: s.parts.filter((p) => !p.ok && !p.empty).length, clients: m.clients.size };
   }));
+}
+// What a folder above the models says it is: the first heading of its README.md, without a leading "name: ".
+// Lets a project say what its groups hold ("ports: the Shapr3D originals"), with no file of ours.
+async function about(names) {
+  const folders = new Set();
+  for (const n of names) { const s = n.split('/'); for (let i = 1; i < s.length; i++) folders.add(s.slice(0, i).join('/')); }
+  const out = {};
+  await Promise.all([...folders].map(async (f) => {
+    try {
+      const h = (await readFile(path.join(ROOT, f, 'README.md'), 'utf8')).match(/^#\s+(.+)$/m)?.[1].trim();
+      if (h) out[f] = h.replace(new RegExp(`^(?:${f.split('/').map((x) => x.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&')).join('|')}|${f.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&')})\\s*[:\u2014-]\\s*`, 'i'), '');
+    } catch {}
+  }));
+  return out;
 }
 
 Bun.serve({
@@ -360,6 +390,7 @@ Bun.serve({
     const p = url.pathname;
     if (p === '/api/models') return json(await modelList());
     if (p === '/api/root') return json({ root: ROOT, port: PORT });
+    if (p === '/api/workspace') { const list = await modelList(); return json({ root: ROOT, models: list, about: await about(list.map((m) => m.name)) }); }
 
     // /api/<model>/<route>, where <model> is one to MAX_DEPTH path segments. The deepest folder with a viewer.json
     // wins, so a sub-model (<toy>/<name>) is found before a route of the same name on its parent.

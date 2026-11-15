@@ -8,6 +8,8 @@ const j = (r) => r.json();
 const send = (url, method, body) => fetch(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(j);
 
 export const getModels = () => fetch('/api/models').then(j).catch(() => []);
+// the front page: { root, models (each with assembly, uses, reference), about: folder -> its README's heading }
+export const getWorkspace = () => fetch('/api/workspace').then(j).catch(() => ({ models: [], about: {} }));
 export const getState = () => fetch(`${API}/state`).then(j);
 // model: another folder's (a part the scene shows from it), default this one's
 export const getSource = (module, model = MODEL) => fetch(`/api/${model}/source?module=${module}`).then(j);
@@ -51,8 +53,12 @@ export function connect(h) {
   reconnect();
   setInterval(() => { if (Date.now() - lastMsg > 45000) { console.warn('[viewer] sse silent, reconnecting'); reconnect(); } }, 10000);
 }
+// the URL names no model (the picker is showing): nothing to listen to
+let off = false;
+export function disconnect() { off = true; if (es) es.close(); }
 function reconnect() {
   if (es) es.close();
+  if (off) return;
   es = new EventSource(`${API}/events`);
   lastMsg = Date.now();
   es.onopen = () => { lastMsg = Date.now(); console.log('[viewer] sse open'); handlers.open?.(); };
