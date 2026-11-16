@@ -80,7 +80,8 @@ export async function readScene(host: Host, dir: string, manifest?: Manifest): P
   const hash = sceneHash(text);
   let scene: any = null;
   let errors: string[], uses: Uses = {};
-  if (text == null) scene = defaultScene(path.basename(dir));
+  // no scene.json: one instance of the folder's own parts; a folder with no parts of its own (an assembly being started) begins empty
+  if (text == null) scene = manifest.parts?.length ? defaultScene(path.basename(dir)) : { version: 1, instances: [] };
   try { scene ??= JSON.parse(text!); uses = await loadUses(host, dir, scene); errors = validateScene(scene, manifest, uses, await exportsOf(host, dir, manifest)); }
   catch (e: any) { errors = [`scene.json is not JSON: ${e.message}`]; }
   const ok = !errors.length;
