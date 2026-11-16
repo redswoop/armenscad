@@ -2,11 +2,14 @@
 
 A workbench for designing 3D-printable parts in [OpenSCAD](https://openscad.org) together with an AI coding agent. It was built around [Claude Code](https://claude.com/claude-code), and the viewer and tools are also useful on their own.
 
-![The viewer showing the hinge_box example with a section cut](docs/viewer.png)
+![An assembly in the viewer: a combiner robot's printed hip, knees and ankles placed among scans of the original toys, the hip instance selected](docs/assembly.jpg)
+
+*An assembly: printed replacement joints (hip, knees, ankles), each designed in its own folder, placed among scans of the six original toys.*
 
 OpenSCAD models are code, which an agent writes well, but neither of you can see what the other means. This repo is the shared surface:
 
 - **`viewer/`**: a browser viewer that rebuilds every part on save. Per-part colours and groups, a parameter panel read from the `.scad` file, section cuts with hatched caps (overlapping parts show in red), bounding-box sizes, reference photos, and notes you draw on the render that the agent can read back with the parts and millimetre coordinates under each stroke.
+- **Assemblies**: a `scene.json` places copies of parts, from the model's own folder or from other folders, each with its own position, colour and parameter values. A big project stays a set of small models plus one folder that shows them together. See [Assemblies](#assemblies).
 - **`tools/`**: command-line checks the agent runs instead of eyeballing: collision tables across poses, STL facts (volume, watertightness, shell count), parameter write-back, volume comparison against a reference mesh, STL cross-sections, 3MF, Shapr3D and LDraw readers.
 - **`lib/armenscad/`**: shared OpenSCAD modules (printable fillets, sweeps, teardrop holes, settled clearances), used as `use <armenscad/shape.scad>` from any folder.
 - **`template/`**: the skeleton of a model folder: model, viewer manifest, print layout, collision pairs, tolerance coupon, export scripts, README.
@@ -50,6 +53,9 @@ The browser opens on the list of models in that folder; pick `examples/hinge_box
 - Change `lid_deg` in the parameter panel and press Apply.
 - Press `s` for a section cut and drag the hatched face.
 - Run the collision table: `armenscad check examples/hinge_box/check.scad 'lid_deg=0' 'lid_deg=90' 'lid_deg=180'`
+- Open `examples/hinge_pair`: an assembly that places two copies of the box, one mirrored.
+
+![The hinge_box example with a section cut and its parameter panel](docs/viewer.jpg)
 
 The viewer listens on localhost only. `HOST=0.0.0.0 armenscad browse .` opens it to your network; the API has no authentication, so do that only on a network you trust.
 
@@ -63,6 +69,45 @@ armenscad browse .
 
 `init` copies `template/` to `bracket/` and makes it its own git repo; `browse` serves every model under the folder you give it (three levels deep), so http://127.0.0.1:5180/bracket/ is live. Something with several assemblies is one repo with a subfolder each: `armenscad init boat/hull`, `armenscad init boat/hatch`. Models say `use <armenscad/shape.scad>` to reach the shared library from anywhere.
 
+## Assemblies
+
+A model folder draws its parts. An assembly is a folder with no `.scad` of its own: an empty `viewer.json` (`{}`) and a `scene.json` that places instances of other folders' parts.
+
+```json
+{
+  "version": 1,
+  "instances": [
+    { "id": "hip", "use": "../hip", "at": [0, -7.14, 1.35] },
+    { "id": "knee_left", "use": "../knee", "parts": ["connector"],
+      "set": { "who": "mixmaster", "bend": 45 }, "at": [-18, 0, -40] },
+    { "id": "knee_right", "use": "../knee", "parts": ["connector"],
+      "set": { "who": "scrapper" }, "at": [18, 0, -40], "mirror": [1, 0, 0] },
+    { "id": "longhaul", "use": "../toys/longhaul", "color": "#7a8f3a" }
+  ]
+}
+```
+
+- `use` names the folder the parts come from, `parts` picks some of them (default: all). Each folder is built in its own place, once, and the assembly rebuilds when a folder it uses does.
+- `at`, `rot`, `scale`, `mirror`, `color` and `material` place and dress an instance. Drag it with the gizmo in the viewer or type the numbers in the Instance panel; both write `scene.json`, with undo.
+- `set` gives one instance its own values of what that folder's `.scad` exports, so two knees can be the same file with different settings. A file exports every parameter until it carries a `// @exports-only` line; after that, only lines marked `// @export`. Each distinct `set` is built once and cached.
+- `"scratch": true` marks an instance as only for looking, like a scan of the thing the parts must fit. A folder holding just a mesh (a three-line `.scad` that imports the STL) works as a reference component.
+- An assembly can be used by another assembly; it offers what it places.
+
+The same edits from the command line, which is how the agent makes them:
+
+```sh
+armenscad scene robot                          # list the instances
+armenscad scene robot add knee_left use=../knee parts=connector at=-18,0,-40
+armenscad scene robot set knee_left.bend 45    # one exported value; no value puts the default back
+armenscad scene robot values knee_left         # what the folder exports and what the scene sets
+```
+
+The front page lists a workspace by project: assemblies first, then the models with who uses them, and subfolders as folded groups titled by their `README.md` heading.
+
+![A project on the front page: the robot assembly, the models it uses, and folded groups for imported originals and toy scans](docs/project.png)
+
+Not built yet: the collision check and `_scene.scad` cover a model's own scene, not one that uses other folders or sets values; placements are plain numbers, so they do not follow when a part they sit on changes size. The design and the list of what is next are in `docs/SPEC-components-2026-11-14.md`.
+
 ## With Claude Code
 
 With the plugin installed, start `claude` in your workspace or model folder and ask for a part; the `openscad` skill loads with the plugin, and each model's `CLAUDE.md` (project memory) loads when Claude touches its files. The skill has Claude keep every dimension a named parameter, look at its own work in the viewer, run the collision pairs at the design extremes, print a tolerance coupon before the real parts, and leave each model's `README.md` as a handoff for the next session. A browser tool (Claude in Chrome or similar) lets it take screenshots of the viewer and drive it through `window.viewer`.
@@ -75,14 +120,13 @@ Draw on the render (pen `p`, arrow `a`, label `t`, points `k`), type a caption, 
 |---|---|
 | `.claude-plugin/` | Plugin and marketplace manifests. |
 | `bin/armenscad` | The command. |
-| `skills/openscad/` | The Claude skill. `docs/lessons.md` is its appendix of things learned. |
-| `core/` | The headless core (TypeScript under Bun): builds parts through a content-keyed cache, reads and writes `scene.json`, writes `_scene.scad`. The viewer's server and `armenscad scene` are its clients; `bun test` runs its tests. |
+| `skills/openscad/` | The Claude skill: `SKILL.md` is the workflow, written for the agent and a good read for humans too. `docs/lessons.md` is its appendix of things learned. |
+| `core/` | The headless core (TypeScript under Bun): builds parts through a content-keyed cache, reads and writes `scene.json`, builds each folder an assembly uses and each instance's own values, writes `_scene.scad`. The viewer's server and `armenscad scene` are its clients; `bun test` runs its tests. |
 | `viewer/` | Bun API server (`server.js`, port 3003) and Vite + three.js front end (port 5180). `armenscad browse [DIR]` starts it on a workspace folder (next free ports if busy). |
-| `tools/` | `check.sh`, `stlinfo.py`, `scadset`, `notes`, `scene` (a model's `scene.json`: placed copies of its parts, and `_scene.scad`), `voxcmp.py`, `slice.sh`, `svgpts.py`, `stlshift.py`, `3mfinfo.py`, `3mf2stl.py`, `shapr_dump.py`, `ldraw2stl.py` (LDraw part to a reference STL), `stlshells.py` (union a mesh-soup download's closed shells, report the open ones), `new-model.sh`. Usage is in each file's header comment. |
+| `tools/` | `check.sh`, `stlinfo.py`, `scadset`, `notes`, `scene` (a model's `scene.json`: placed copies of its parts and of other folders', and `_scene.scad`), `voxcmp.py`, `slice.sh`, `svgpts.py`, `stlshift.py`, `3mfinfo.py`, `3mf2stl.py`, `shapr_dump.py`, `ldraw2stl.py` (LDraw part to a reference STL), `stlshells.py` (union a mesh-soup download's closed shells, report the open ones), `new-model.sh`. Usage is in each file's header comment. |
 | `lib/armenscad/` | Shared modules, see `lib/README.md`. Run `tools/install-lib.sh` once so OpenSCAD finds them from anywhere (the viewer and tools find them on their own). |
 | `template/` | New-model skeleton. |
-| `examples/` | Demo models tracked in this repo. |
-| `.claude/skills/openscad/SKILL.md` | The workflow, written for the agent; a good read for humans too. |
+| `examples/` | Demo models tracked in this repo: `hinge_box` (a model) and `hinge_pair` (an assembly of two of them). |
 | `docs/NOTES.md` | Design diary: how this grew and what is still on the list. |
 
 The clearances in `lib/armenscad/fit.scad` were settled on one printer (Bambu H2C, 0.4 nozzle, PLA). Treat them as starting points and print the coupon.
